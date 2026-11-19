@@ -166,6 +166,9 @@ body.locked{overflow:hidden}
 .land-foot{margin-top:16px;font-size:12px;color:#77766f}
 .who-out{margin-left:8px;border:0;background:transparent;color:#a9a8a1;font:inherit;font-size:11px;cursor:pointer;text-decoration:underline}
 .who-out:hover{color:#fff}
+@media (max-width:640px){.who-chip{flex-wrap:wrap;row-gap:6px;border-radius:14px;padding:6px 10px 6px 6px;max-width:100%}.top-inner>div:last-child{align-items:flex-start!important;width:100%}}
+#whoUsers{color:#16181b;background:var(--warn);text-decoration:none;border-radius:999px;padding:2px 10px;font-weight:600}
+#whoUsers:hover{color:#16181b;filter:brightness(1.1)}
 .users-tbl td,.users-tbl th{padding:6px 8px}
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--surface);padding:10px 16px;border-radius:8px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:60}
 .toast.show{opacity:1}
@@ -190,7 +193,7 @@ details.tv table{font-size:12px;margin-top:6px}
       <div class="eyebrow">Manufactura · SMED</div>
       <h1>Monitoreo de Cambios de Modelo</h1>
     </div>
-    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px"><div class="who-chip" id="whoChip" hidden><img id="whoAv" alt=""><span><b id="whoName"></b><span id="whoRole" class="role"></span></span><button class="who-out" id="whoPw" type="button" title="Cambiar contraseña" hidden>Contraseña</button><button class="who-out" id="whoOut" type="button" title="Salir">Salir</button></div><div class="sync"><span class="dot" id="syncDot"></span><span id="syncText">Conectando…</span></div></div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px"><div class="who-chip" id="whoChip" hidden><img id="whoAv" alt=""><span><b id="whoName"></b><span id="whoRole" class="role"></span></span><button class="who-out" id="whoUsers" type="button" title="Crear y administrar usuarios" hidden>Usuarios</button><button class="who-out" id="whoPw" type="button" title="Cambiar contraseña" hidden>Contraseña</button><button class="who-out" id="whoOut" type="button" title="Salir">Salir</button></div><div class="sync"><span class="dot" id="syncDot"></span><span id="syncText">Conectando…</span></div></div>
   </div>
 </header>
 
@@ -1474,6 +1477,10 @@ $('#whoOut').addEventListener('click', async () => {
   try { sessionStorage.removeItem('smed-sess'); } catch (e) {}
   myId = null; isAdmin = false; canWrite = false; $('#whoChip').hidden = true; localLogin();
 });
+$('#whoUsers').addEventListener('click', () => {
+  const c = $('#usersCard'); c.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  c.style.outline = '3px solid var(--warn)'; setTimeout(() => { c.style.outline = ''; $('#nuName').focus({ preventScroll: true }); }, 900);
+});
 $('#whoPw').addEventListener('click', () => {
   openModal('Cambiar mi contraseña', '', `<label class="f">Contraseña actual<input id="pwCur" type="password" autocomplete="current-password"></label>
     <label class="f" style="margin-top:8px">Nueva contraseña<input id="pwNew" type="password" minlength="6" autocomplete="new-password"></label>
@@ -1492,7 +1499,7 @@ $('#whoPw').addEventListener('click', () => {
 function userList() { return MODE === 'api' ? apiUsers.map(u => ({ id: u.id, name: u.name, user: u.username, role: u.role, active: u.active })) : LOCALU.load(); }
 function renderUsers() {
   const card = $('#usersCard');
-  card.hidden = !((MODE === 'local' || MODE === 'api') && isAdmin && myId); if (card.hidden) return;
+  card.hidden = !((MODE === 'local' || MODE === 'api') && isAdmin && myId); $('#whoUsers').hidden = card.hidden; if (card.hidden) return;
   $('#usersH').textContent = MODE === 'api' ? 'Usuarios' : 'Usuarios de esta computadora';
   $('#usersSub').textContent = MODE === 'api' ? 'Cuentas del tablero en línea. Cada quien entra con su usuario y contraseña desde cualquier computadora o celular.' : 'Solo para el archivo HTML: usuarios y contraseñas guardados en este navegador. Sirven para saber quién captura y qué puede hacer cada quien; no son una protección fuerte.';
   const us = userList();
