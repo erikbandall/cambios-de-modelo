@@ -1,0 +1,16 @@
+{
+  "name": "cambios-de-modelo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tablero de monitoreo de cambios de modelo (SMED) con login y base de datos en vivo (Turso).",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.14.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

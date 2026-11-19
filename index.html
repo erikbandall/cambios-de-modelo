@@ -190,7 +190,7 @@ details.tv table{font-size:12px;margin-top:6px}
       <div class="eyebrow">Manufactura · SMED</div>
       <h1>Monitoreo de Cambios de Modelo</h1>
     </div>
-    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px"><div class="who-chip" id="whoChip" hidden><img id="whoAv" alt=""><span><b id="whoName"></b><span id="whoRole" class="role"></span></span><button class="who-out" id="whoOut" type="button" title="Salir">Salir</button></div><div class="sync"><span class="dot" id="syncDot"></span><span id="syncText">Conectando…</span></div></div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px"><div class="who-chip" id="whoChip" hidden><img id="whoAv" alt=""><span><b id="whoName"></b><span id="whoRole" class="role"></span></span><button class="who-out" id="whoPw" type="button" title="Cambiar contraseña" hidden>Contraseña</button><button class="who-out" id="whoOut" type="button" title="Salir">Salir</button></div><div class="sync"><span class="dot" id="syncDot"></span><span id="syncText">Conectando…</span></div></div>
   </div>
 </header>
 
@@ -297,12 +297,12 @@ details.tv table{font-size:12px;margin-top:6px}
   </section>
 
   <section class="card" id="usersCard" hidden>
-    <div class="card-h"><div><h2>Usuarios de esta computadora</h2><div class="sub">Solo para el archivo HTML: usuarios y contraseñas guardados en este navegador. Sirven para saber quién captura y qué puede hacer cada quien; no son una protección fuerte.</div></div></div>
+    <div class="card-h"><div><h2 id="usersH">Usuarios</h2><div class="sub" id="usersSub"></div></div></div>
     <div class="tbl-wrap"><table class="rec users-tbl" id="usersTbl"></table></div>
     <form class="form" id="addUserForm" style="margin-top:12px" autocomplete="off">
       <label class="f">Nombre<input id="nuName" maxlength="40" required></label>
       <label class="f">Usuario<input id="nuUser" maxlength="30" required autocapitalize="off"></label>
-      <label class="f">Contraseña<input id="nuPass" type="password" minlength="4" maxlength="60" required></label>
+      <label class="f">Contraseña<input id="nuPass" type="password" minlength="6" maxlength="60" required></label>
       <label class="f">Rol<select id="nuRole"><option value="cap">Capturista</option><option value="admin">Administrador</option><option value="ro">Solo lectura</option></select></label>
       <button class="btn" type="submit">Agregar usuario</button>
     </form>
@@ -375,7 +375,7 @@ async function init() {
   try { if (window.claude && window.claude.use) { [db, user] = await Promise.all([window.claude.use('db'), window.claude.use('user')]); } } catch (e) { db = null; }
   const hosted = !!(window.claude && window.claude.use);
   if (!db && hosted) { LAND.show(`<div class="stack"><div class="lmsg">Para entrar necesitas iniciar sesión en <b>claude.ai</b> con la cuenta con la que te compartieron este tablero.</div><div class="lmsg">Si ya iniciaste sesión, pide al responsable que te comparta el tablero.</div></div>`); return; }
-  if (!db) { store = localStore(); render(); localLogin(); return; }
+  if (!db) { if (await tryApi()) return; store = localStore(); render(); localLogin(); return; }
   userNS = user;
   if (user) {
     try { const w = await user.can('data.write'); if (w === false) canWrite = false; } catch (e) {}
@@ -725,6 +725,7 @@ function renderTable(F) {
   resolveNames(vis.map(r => r.by).filter(Boolean));
 }
 async function resolveNames(ids) {
+  if (MODE === 'api') { document.querySelectorAll('#recTbl td.who[data-uid]').forEach(td => { const id = td.dataset.uid; if (id) td.textContent = (apiNames[id] || 'Usuario eliminado') + (id === myId ? ' (tú)' : ''); }); return; }
   if (!userNS) { const us = LOCALU.load(); ids.forEach(id => { const u = us.find(x => x.id === id); names[id] = u ? u.name + (id === myId ? ' (tú)' : '') : 'Usuario eliminado'; }); document.querySelectorAll('#recTbl td.who[data-uid]').forEach(td => { const id = td.dataset.uid; if (id && names[id]) td.textContent = names[id]; }); return; }
   if (!ids.length) return;
   try {
@@ -1307,6 +1308,7 @@ $('#bulkFile').addEventListener('change', e => { const f = e.target.files[0]; e.
 
 
 // ---------- Página de inicio / login ----------
+let MODE = 'local'; // 'local' (archivo / GitHub Pages) · 'api' (servidor Vercel + Turso) · 'claude'
 const LAND = {
   show(html) { $('#landBody').innerHTML = html; $('#landing').classList.add('open'); document.body.classList.add('locked'); const f = $('#landBody input'); if (f) setTimeout(() => f.focus(), 30); },
   enter() { $('#landing').classList.remove('open'); document.body.classList.remove('locked'); render(); }
@@ -1314,8 +1316,10 @@ const LAND = {
 const ROLE_TXT = { admin: 'Administrador', cap: 'Capturista', ro: 'Solo lectura' };
 function setChip(name, avatar, roleTxt, ro) {
   $('#whoChip').hidden = false; $('#whoAv').src = avatar; $('#whoName').textContent = name; $('#whoRole').textContent = roleTxt; $('#whoRole').classList.toggle('ro', !!ro);
+  $('#whoPw').hidden = MODE === 'claude';
 }
 function cloudLanding(user) {
+  MODE = 'claude';
   user.me().then(me => {
     const roleTxt = $('#whoRole').textContent || 'Solo lectura';
     const desc = isAdmin ? 'Puedes ver, capturar, importar y administrar líneas, modelos, estándares y registros.' : canWrite ? 'Puedes ver el tablero, registrar cambios e importar registros.' : 'Puedes consultar la matriz, las gráficas y los registros.';
@@ -1326,7 +1330,30 @@ function cloudLanding(user) {
     $('#lEnter').onclick = () => LAND.enter();
   });
 }
-// usuarios locales (solo archivo HTML)
+const initialsAv = name => { const ini = (name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase(); return 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" rx="20" fill="#fab219"/><text x="20" y="25" font-family="Arial" font-size="15" font-weight="700" text-anchor="middle" fill="#16181b">${ini.replace(/[<&>]/g, '')}</text></svg>`); };
+function applyUser(u) {
+  myId = u.id; isAdmin = u.role === 'admin'; canWrite = u.role !== 'ro';
+  setChip(u.name, initialsAv(u.name), ROLE_TXT[u.role] || u.role, u.role === 'ro');
+  const note = $('#roleNote'); note.classList.remove('show');
+  if (!canWrite) { note.textContent = 'Tienes acceso de solo lectura. Pide al administrador un usuario de Capturista para registrar cambios.'; note.classList.add('show'); }
+  else if (!isAdmin) { note.textContent = 'Entraste como Capturista: puedes registrar cambios e importar registros. La configuración, los estándares y el borrado de registros los maneja el administrador.'; note.classList.add('show'); }
+}
+const setupForm = intro => `<form class="stack" id="lSetup" autocomplete="off">
+  <div class="lmsg">${intro}</div>
+  <label class="f">Nombre<input id="lsName" required maxlength="40" placeholder="Ej. Erik Bandala"></label>
+  <label class="f">Usuario<input id="lsUser" required maxlength="30" autocapitalize="off"></label>
+  <label class="f">Contraseña<input id="lsPass" type="password" required minlength="6"></label>
+  <label class="f">Confirmar contraseña<input id="lsPass2" type="password" required minlength="6"></label>
+  <div class="lerr" id="lErr"></div>
+  <button class="btn" type="submit">Crear y entrar</button></form>`;
+const loginForm = extra => `<form class="stack" id="lLogin" autocomplete="on">
+  <label class="f">Usuario<input id="llUser" required autocapitalize="off" autocomplete="username"></label>
+  <label class="f">Contraseña<input id="llPass" type="password" required autocomplete="current-password"></label>
+  <div class="lerr" id="lErr"></div>
+  <button class="btn" type="submit">Entrar</button>
+  <div class="lmsg" style="font-size:12px;color:#8f8e86">${extra}</div></form>`;
+
+// ----- usuarios locales (archivo HTML / GitHub Pages) -----
 const LOCALU = {
   load() { try { return JSON.parse(localStorage.getItem('smed-users') || '[]'); } catch (e) { return []; } },
   save(us) { try { localStorage.setItem('smed-users', JSON.stringify(us)); } catch (e) {} },
@@ -1336,72 +1363,164 @@ const LOCALU = {
     catch (e) { let h = 5381; for (const ch of txt) h = ((h << 5) + h + ch.charCodeAt(0)) >>> 0; return 'f' + h.toString(16); }
   }
 };
-const initialsAv = name => { const ini = (name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase(); return 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" rx="20" fill="#fab219"/><text x="20" y="25" font-family="Arial" font-size="15" font-weight="700" text-anchor="middle" fill="#16181b">${ini.replace(/[<&>]/g, '')}</text></svg>`); };
-function applyLocalUser(u) {
-  myId = u.id; isAdmin = u.role === 'admin'; canWrite = u.role !== 'ro';
-  setChip(u.name, initialsAv(u.name), ROLE_TXT[u.role], u.role === 'ro');
-  const note = $('#roleNote'); note.classList.remove('show');
-  if (!canWrite) { note.textContent = 'Tienes acceso de solo lectura. Pide al administrador un usuario de Capturista para registrar cambios.'; note.classList.add('show'); }
-  else if (!isAdmin) { note.textContent = 'Entraste como Capturista: puedes registrar cambios e importar registros. La configuración, los estándares y el borrado de registros los maneja el administrador.'; note.classList.add('show'); }
-}
 function localLogin() {
+  MODE = 'local';
   const us = LOCALU.load();
-  try { const sid = sessionStorage.getItem('smed-sess'); const u = sid && us.find(x => x.id === sid); if (u) { applyLocalUser(u); LAND.enter(); return; } } catch (e) {}
+  try { const sid = sessionStorage.getItem('smed-sess'); const u = sid && us.find(x => x.id === sid); if (u) { applyUser(u); LAND.enter(); return; } } catch (e) {}
   if (!us.length) {
-    LAND.show(`<form class="stack" id="lSetup" autocomplete="off">
-      <div class="lmsg"><b>Primera vez:</b> crea el usuario administrador de esta computadora. Después podrás agregar capturistas en «Usuarios».</div>
-      <label class="f">Nombre<input id="lsName" required maxlength="40" placeholder="Ej. Erik Bandala"></label>
-      <label class="f">Usuario<input id="lsUser" required maxlength="30" autocapitalize="off"></label>
-      <label class="f">Contraseña<input id="lsPass" type="password" required minlength="4"></label>
-      <label class="f">Confirmar contraseña<input id="lsPass2" type="password" required minlength="4"></label>
-      <div class="lerr" id="lErr"></div>
-      <button class="btn" type="submit">Crear y entrar</button></form>`);
+    LAND.show(setupForm('<b>Primera vez:</b> crea el usuario administrador de esta computadora. Después podrás agregar capturistas en «Usuarios».'));
     $('#lSetup').onsubmit = async e => {
       e.preventDefault();
       if ($('#lsPass').value !== $('#lsPass2').value) { $('#lErr').textContent = 'Las contraseñas no coinciden.'; return; }
       const salt = uid() + uid(); const u = { id: 'lu' + uid(), name: $('#lsName').value.trim(), user: $('#lsUser').value.trim().toLowerCase(), salt, hash: await LOCALU.hash(salt, $('#lsPass').value), role: 'admin' };
       LOCALU.save([u]); try { sessionStorage.setItem('smed-sess', u.id); } catch (e) {}
-      applyLocalUser(u); LAND.enter();
+      applyUser(u); LAND.enter();
     };
     return;
   }
-  LAND.show(`<form class="stack" id="lLogin" autocomplete="off">
-    <label class="f">Usuario<input id="llUser" required autocapitalize="off" autocomplete="username"></label>
-    <label class="f">Contraseña<input id="llPass" type="password" required autocomplete="current-password"></label>
-    <div class="lerr" id="lErr"></div>
-    <button class="btn" type="submit">Entrar</button>
-    <div class="lmsg" style="font-size:12px;color:#8f8e86">¿Olvidaste tu contraseña? Pide al administrador que te dé de alta otra vez.</div></form>`);
+  LAND.show(loginForm('¿Olvidaste tu contraseña? Pide al administrador que te dé de alta otra vez.'));
   $('#lLogin').onsubmit = async e => {
     e.preventDefault();
     const u = LOCALU.load().find(x => x.user === $('#llUser').value.trim().toLowerCase());
     if (!u || await LOCALU.hash(u.salt, $('#llPass').value) !== u.hash) { $('#lErr').textContent = 'Usuario o contraseña incorrectos.'; $('#llPass').value = ''; return; }
     try { sessionStorage.setItem('smed-sess', u.id); } catch (e) {}
-    applyLocalUser(u); LAND.enter();
+    applyUser(u); LAND.enter();
   };
 }
-$('#whoOut').addEventListener('click', () => {
-  if (userNS) { cloudLanding(userNS); return; }
+
+// ----- servidor (Vercel + Turso): base de datos en vivo -----
+async function api(method, path, body) {
+  const r = await fetch(path, { method, credentials: 'same-origin', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+  let j = {}; try { j = await r.json(); } catch (e) {}
+  if (!r.ok) { const err = new Error(j.error || ('Error ' + r.status)); err.status = r.status; throw err; }
+  return j;
+}
+let apiVer = -1, apiTimer = null, apiNames = {}, apiUsers = [];
+async function apiRefresh(force) {
+  try {
+    const j = await api('GET', '/api/state' + (force ? '' : '?v=' + apiVer));
+    if (!j.unchanged) { apiVer = j.version; cfg = Object.assign({ lines: [], std: {} }, j.cfg || {}); recs = j.recs || []; apiNames = j.names || apiNames; render(); }
+    setSync('on', 'En vivo · base de datos compartida');
+  } catch (e) {
+    if (e.status === 401) { stopPolling(); apiLogin(); return; }
+    setSync('err', 'Sin conexión con el servidor; reintentando…');
+  }
+}
+function startPolling() { stopPolling(); apiTimer = setInterval(() => { if (!document.hidden) apiRefresh(false); }, 10000); document.addEventListener('visibilitychange', onVis); }
+function stopPolling() { if (apiTimer) clearInterval(apiTimer); apiTimer = null; document.removeEventListener('visibilitychange', onVis); }
+const onVis = () => { if (!document.hidden) apiRefresh(false); };
+function apiStore() {
+  const fail = e => { toast(e.status === 403 ? 'No tienes permiso para hacer este cambio' : (e.message || 'No se pudo guardar')); throw e; };
+  const bulk = async (adds, dels, prog) => {
+    const total = adds.length + dels.length; let done = 0;
+    try {
+      for (let i = 0; i < dels.length; i += 500) { const part = dels.slice(i, i + 500); await api('POST', '/api/records/delete', { ids: part }); done += part.length; prog && prog(done, total); }
+      for (let i = 0; i < adds.length; i += 500) { const part = adds.slice(i, i + 500); await api('POST', '/api/records', { records: part }); done += part.length; prog && prog(done, total); }
+    } catch (e) { await apiRefresh(true); throw new Error(e.status === 403 ? 'sin permiso' : e.message); }
+    await apiRefresh(true);
+  };
+  return {
+    saveCfg: async c => { try { await api('PUT', '/api/config', { cfg: c }); } catch (e) { fail(e); } await apiRefresh(true); },
+    addRec: async r => { try { await api('POST', '/api/records', { records: [r] }); } catch (e) { fail(e); } await apiRefresh(true); },
+    delRec: async id => { try { await api('POST', '/api/records/delete', { ids: [id] }); } catch (e) { fail(e); } await apiRefresh(true); },
+    bulk,
+  };
+}
+async function apiEnter(u) {
+  applyUser(u); store = apiStore(); setSync('', 'Cargando…');
+  await apiRefresh(true); startPolling(); LAND.enter();
+  if (isAdmin) loadApiUsers();
+}
+async function tryApi() {
+  if (location.protocol === 'file:') return false;
+  let st; try { st = await api('GET', '/api/auth/status'); } catch (e) { return false; }
+  if (typeof st.needsSetup !== 'boolean') return false;
+  MODE = 'api';
+  if (st.user) { apiEnter(st.user); return true; }
+  apiLogin(st.needsSetup);
+  return true;
+}
+function apiLogin(needsSetup) {
+  MODE = 'api'; $('#whoChip').hidden = true;
+  if (needsSetup) {
+    LAND.show(setupForm('<b>Primera vez:</b> crea el usuario administrador del tablero. Después darás de alta a los ingenieros en «Usuarios».'));
+    $('#lSetup').onsubmit = async e => {
+      e.preventDefault();
+      if ($('#lsPass').value !== $('#lsPass2').value) { $('#lErr').textContent = 'Las contraseñas no coinciden.'; return; }
+      try { const j = await api('POST', '/api/auth/setup', { name: $('#lsName').value.trim(), username: $('#lsUser').value.trim(), password: $('#lsPass').value }); apiEnter(j.user); }
+      catch (err) { $('#lErr').textContent = err.message; }
+    };
+    return;
+  }
+  LAND.show(loginForm('¿Olvidaste tu contraseña? Pide al administrador que te la restablezca.'));
+  $('#lLogin').onsubmit = async e => {
+    e.preventDefault(); const btn = e.target.querySelector('button'); btn.disabled = true;
+    try { const j = await api('POST', '/api/auth/login', { username: $('#llUser').value.trim(), password: $('#llPass').value }); apiEnter(j.user); }
+    catch (err) { $('#lErr').textContent = err.status === 401 ? 'Usuario o contraseña incorrectos.' : err.message; $('#llPass').value = ''; }
+    btn.disabled = false;
+  };
+}
+async function loadApiUsers() { try { apiUsers = (await api('GET', '/api/users')).users; renderUsers(); } catch (e) {} }
+
+$('#whoOut').addEventListener('click', async () => {
+  if (MODE === 'claude') { cloudLanding(userNS); return; }
+  if (MODE === 'api') { stopPolling(); try { await api('POST', '/api/auth/logout'); } catch (e) {} myId = null; isAdmin = false; canWrite = false; cfg = { lines: [], std: {} }; recs = []; render(); apiLogin(false); return; }
   try { sessionStorage.removeItem('smed-sess'); } catch (e) {}
   myId = null; isAdmin = false; canWrite = false; $('#whoChip').hidden = true; localLogin();
 });
-function renderUsers() {
-  const card = $('#usersCard'); const local = !userNS && store && !(window.claude && window.claude.use);
-  card.hidden = !(local && isAdmin); if (card.hidden) return;
-  const us = LOCALU.load();
-  $('#usersTbl').innerHTML = '<thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th></th></tr></thead><tbody>' + us.map(u => `<tr><td>${esc(u.name)}${u.id === myId ? ' <span class="hint">(tú)</span>' : ''}</td><td class="mono">${esc(u.user)}</td>
-    <td><select data-urole="${esc(u.id)}" ${u.id === myId ? 'disabled' : ''}>${Object.keys(ROLE_TXT).map(k => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${ROLE_TXT[k]}</option>`).join('')}</select></td>
-    <td>${u.id === myId ? '' : `<button class="x" data-udel="${esc(u.id)}" aria-label="Eliminar usuario">✕</button>`}</td></tr>`).join('') + '</tbody>';
-}
-$('#usersTbl').addEventListener('change', e => { const t = e.target.closest('[data-urole]'); if (!t) return; const us = LOCALU.load(); const u = us.find(x => x.id === t.dataset.urole); if (u) { u.role = t.value; LOCALU.save(us); toast('Rol actualizado'); } });
-$('#usersTbl').addEventListener('click', e => { const b = e.target.closest('[data-udel]'); if (!b) return; const us = LOCALU.load(); const u = us.find(x => x.id === b.dataset.udel); if (!u) return;
-  openModal('Eliminar usuario', `Se eliminará el usuario «${u.name}». Sus registros se conservan.`, '', 'Eliminar', () => { LOCALU.save(us.filter(x => x.id !== u.id)); renderUsers(); }); });
-$('#addUserForm').addEventListener('submit', async e => {
-  e.preventDefault(); const us = LOCALU.load(); const user = $('#nuUser').value.trim().toLowerCase();
-  if (us.some(x => x.user === user)) { toast('Ese usuario ya existe'); return; }
-  const salt = uid() + uid(); us.push({ id: 'lu' + uid(), name: $('#nuName').value.trim(), user, salt, hash: await LOCALU.hash(salt, $('#nuPass').value), role: $('#nuRole').value });
-  LOCALU.save(us); e.target.reset(); renderUsers(); toast('Usuario agregado');
+$('#whoPw').addEventListener('click', () => {
+  openModal('Cambiar mi contraseña', '', `<label class="f">Contraseña actual<input id="pwCur" type="password" autocomplete="current-password"></label>
+    <label class="f" style="margin-top:8px">Nueva contraseña<input id="pwNew" type="password" minlength="6" autocomplete="new-password"></label>
+    <label class="f" style="margin-top:8px">Confirmar nueva<input id="pwNew2" type="password" minlength="6" autocomplete="new-password"></label>`, 'Cambiar', async () => {
+    const cur = $('#pwCur').value, nw = $('#pwNew').value;
+    if (nw.length < 6) { toast('La nueva contraseña debe tener al menos 6 caracteres'); return false; }
+    if (nw !== $('#pwNew2').value) { toast('Las contraseñas nuevas no coinciden'); return false; }
+    if (MODE === 'api') { try { await api('POST', '/api/auth/password', { current: cur, next: nw }); toast('Contraseña actualizada'); } catch (e) { toast(e.message); return false; } return; }
+    const us = LOCALU.load(); const u = us.find(x => x.id === myId);
+    if (!u || await LOCALU.hash(u.salt, cur) !== u.hash) { toast('La contraseña actual no es correcta'); return false; }
+    u.salt = uid() + uid(); u.hash = await LOCALU.hash(u.salt, nw); LOCALU.save(us); toast('Contraseña actualizada');
+  });
 });
 
+// ----- tarjeta de usuarios (admin) -----
+function userList() { return MODE === 'api' ? apiUsers.map(u => ({ id: u.id, name: u.name, user: u.username, role: u.role, active: u.active })) : LOCALU.load(); }
+function renderUsers() {
+  const card = $('#usersCard');
+  card.hidden = !((MODE === 'local' || MODE === 'api') && isAdmin && myId); if (card.hidden) return;
+  $('#usersH').textContent = MODE === 'api' ? 'Usuarios' : 'Usuarios de esta computadora';
+  $('#usersSub').textContent = MODE === 'api' ? 'Cuentas del tablero en línea. Cada quien entra con su usuario y contraseña desde cualquier computadora o celular.' : 'Solo para el archivo HTML: usuarios y contraseñas guardados en este navegador. Sirven para saber quién captura y qué puede hacer cada quien; no son una protección fuerte.';
+  const us = userList();
+  $('#usersTbl').innerHTML = '<thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th></th></tr></thead><tbody>' + us.map(u => `<tr><td>${esc(u.name)}${u.id === myId ? ' <span class="hint">(tú)</span>' : ''}</td><td class="mono">${esc(u.user)}</td>
+    <td><select data-urole="${esc(u.id)}" ${u.id === myId ? 'disabled' : ''}>${Object.keys(ROLE_TXT).map(k => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${ROLE_TXT[k]}</option>`).join('')}</select></td>
+    <td style="white-space:nowrap">${u.id === myId ? '' : `<button class="btn ghost sm" data-upw="${esc(u.id)}">Restablecer contraseña</button> <button class="x" data-udel="${esc(u.id)}" aria-label="Eliminar usuario">✕</button>`}</td></tr>`).join('') + '</tbody>';
+}
+$('#usersTbl').addEventListener('change', async e => {
+  const t = e.target.closest('[data-urole]'); if (!t) return;
+  if (MODE === 'api') { try { await api('PATCH', '/api/users/' + encodeURIComponent(t.dataset.urole), { role: t.value }); toast('Rol actualizado'); } catch (err) { toast(err.message); } loadApiUsers(); return; }
+  const us = LOCALU.load(); const u = us.find(x => x.id === t.dataset.urole); if (u) { u.role = t.value; LOCALU.save(us); toast('Rol actualizado'); }
+});
+$('#usersTbl').addEventListener('click', e => {
+  const d = e.target.closest('[data-udel]'), pw = e.target.closest('[data-upw]');
+  const u = d || pw ? userList().find(x => x.id === (d || pw).dataset[d ? 'udel' : 'upw']) : null; if (!u) return;
+  if (d) openModal('Eliminar usuario', `Se eliminará el usuario «${u.name}». Sus registros se conservan.`, '', 'Eliminar', async () => {
+    if (MODE === 'api') { try { await api('DELETE', '/api/users/' + encodeURIComponent(u.id)); } catch (err) { toast(err.message); } loadApiUsers(); return; }
+    LOCALU.save(LOCALU.load().filter(x => x.id !== u.id)); renderUsers();
+  });
+  else openModal(`Restablecer contraseña de ${u.name}`, 'Escribe la nueva contraseña y compártela con la persona.', '<label class="f">Nueva contraseña<input id="rpNew" type="password" minlength="6" autocomplete="new-password"></label>', 'Guardar', async () => {
+    const nw = $('#rpNew').value; if (nw.length < 6) { toast('Mínimo 6 caracteres'); return false; }
+    if (MODE === 'api') { try { await api('PATCH', '/api/users/' + encodeURIComponent(u.id), { password: nw }); toast('Contraseña restablecida'); } catch (err) { toast(err.message); return false; } return; }
+    const us = LOCALU.load(); const x = us.find(y => y.id === u.id); x.salt = uid() + uid(); x.hash = await LOCALU.hash(x.salt, nw); LOCALU.save(us); toast('Contraseña restablecida');
+  });
+});
+$('#addUserForm').addEventListener('submit', async e => {
+  e.preventDefault(); const user = $('#nuUser').value.trim().toLowerCase(); const name = $('#nuName').value.trim(); const pass = $('#nuPass').value; const role = $('#nuRole').value;
+  if (pass.length < 6) { toast('La contraseña debe tener al menos 6 caracteres'); return; }
+  if (MODE === 'api') { try { await api('POST', '/api/users', { name, username: user, password: pass, role }); e.target.reset(); toast('Usuario agregado'); } catch (err) { toast(err.message); } loadApiUsers(); return; }
+  const us = LOCALU.load();
+  if (us.some(x => x.user === user)) { toast('Ese usuario ya existe'); return; }
+  const salt = uid() + uid(); us.push({ id: 'lu' + uid(), name, user, salt, hash: await LOCALU.hash(salt, pass), role });
+  LOCALU.save(us); e.target.reset(); renderUsers(); toast('Usuario agregado');
+});
 render();
 init();
 })();
