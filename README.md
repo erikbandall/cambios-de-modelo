@@ -28,13 +28,13 @@ Si prefieres la CLI: `turso db create cambios-de-modelo`, luego `turso db show c
 
 ### 2. Importar el repositorio en Vercel
 1. Entra a [vercel.com/new](https://vercel.com/new) y elige el repositorio **cambios-de-modelo**.
-2. Antes de darle *Deploy*, abre **Environment Variables** y agrega:
+2. Agrega Turso con el botón **Add** de la integración (prefijo `TURSO`, sin «database branch») o, a mano, en **Environment Variables**:
 
 | Variable | Valor |
 |---|---|
 | `TURSO_DATABASE_URL` | La URL `libsql://…` del paso 1 |
 | `TURSO_AUTH_TOKEN` | El token del paso 1 |
-| `SESSION_SECRET` | Una frase larga y aleatoria que tú inventes, de 40 caracteres o más. Firma las sesiones; no la compartas. |
+| `SESSION_SECRET` | *Opcional.* Si no la defines, el servidor genera una clave aleatoria la primera vez y la guarda en la base de datos. |
 
 3. Dale **Deploy**. Vercel te da una dirección como `https://cambios-de-modelo.vercel.app`.
 
