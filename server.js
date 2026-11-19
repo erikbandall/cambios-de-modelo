@@ -31,7 +31,7 @@ async function readBody(req) {
 const pubUser = u => u && { id: u.id, name: u.name, username: u.username, role: u.role, active: !!Number(u.active) };
 async function currentUser(req) {
   const p = auth.verify(auth.readCookie(req)); if (!p) return null;
-  const u = await db.one('SELECT * FROM users WHERE id = ?', [p.uid]);
+  const u = await db.one('SELECT * FROM cm_users WHERE id = ?', [p.uid]);
   return u && Number(u.active) ? u : null;
 }
 function need(user, ...roles) {
@@ -39,7 +39,7 @@ function need(user, ...roles) {
   if (roles.length && !roles.includes(user.role)) throw fail(403, 'No tienes permiso para hacer esto.');
 }
 const cleanName = (s, max) => String(s || '').trim().slice(0, max);
-const version = async () => Number((await db.one("SELECT value FROM meta WHERE key = 'version'")).value);
+const version = async () => Number((await db.one("SELECT value FROM cm_meta WHERE key = 'version'")).value);
 const failedLogins = new Map();
 
 async function apiHandler(req, res, url) {
@@ -50,18 +50,18 @@ async function apiHandler(req, res, url) {
   if (route === '/api/health') return send(res, 200, { ok: true });
 
   if (route === '/api/auth/status' && m === 'GET') {
-    const n = Number((await db.one('SELECT COUNT(*) AS n FROM users')).n);
+    const n = Number((await db.one('SELECT COUNT(*) AS n FROM cm_users')).n);
     return send(res, 200, { needsSetup: n === 0, user: pubUser(user) });
   }
   if (route === '/api/auth/setup' && m === 'POST') {
     const b = await readBody(req);
     const name = cleanName(b.name, 40), username = cleanName(b.username, 30).toLowerCase();
     if (!name || !username || String(b.password || '').length < 6) throw fail(400, 'Captura nombre, usuario y una contraseña de al menos 6 caracteres.');
-    const n = Number((await db.one('SELECT COUNT(*) AS n FROM users')).n);
+    const n = Number((await db.one('SELECT COUNT(*) AS n FROM cm_users')).n);
     if (n > 0) throw fail(409, 'El administrador ya fue creado. Inicia sesión.');
     const id = newId('u');
-    await db.exec('INSERT INTO users (id, username, name, password_hash, role) VALUES (?, ?, ?, ?, ?)', [id, username, name, auth.hashPassword(b.password), 'admin']);
-    const u = await db.one('SELECT * FROM users WHERE id = ?', [id]);
+    await db.exec('INSERT INTO cm_users (id, username, name, password_hash, role) VALUES (?, ?, ?, ?, ?)', [id, username, name, auth.hashPassword(b.password), 'admin']);
+    const u = await db.one('SELECT * FROM cm_users WHERE id = ?', [id]);
     return send(res, 200, { user: pubUser(u) }, { 'Set-Cookie': auth.sessionCookie(id) });
   }
   if (route === '/api/auth/login' && m === 'POST') {
@@ -69,7 +69,7 @@ async function apiHandler(req, res, url) {
     const key = username + '|' + (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '');
     const f = failedLogins.get(key) || { n: 0, t: 0 };
     if (f.n >= 5 && Date.now() - f.t < 5 * 60 * 1000) throw fail(429, 'Demasiados intentos. Espera 5 minutos.');
-    const u = await db.one('SELECT * FROM users WHERE username = ?', [username]);
+    const u = await db.one('SELECT * FROM cm_users WHERE username = ?', [username]);
     if (!u || !Number(u.active) || !auth.checkPassword(b.password, u.password_hash)) {
       failedLogins.set(key, { n: f.n + 1, t: Date.now() });
       await new Promise(r => setTimeout(r, 400));
@@ -83,7 +83,7 @@ async function apiHandler(req, res, url) {
     need(user); const b = await readBody(req);
     if (!auth.checkPassword(b.current, user.password_hash)) throw fail(400, 'La contraseña actual no es correcta.');
     if (String(b.next || '').length < 6) throw fail(400, 'La nueva contraseña debe tener al menos 6 caracteres.');
-    await db.exec('UPDATE users SET password_hash = ? WHERE id = ?', [auth.hashPassword(b.next), user.id]);
+    await db.exec('UPDATE cm_users SET password_hash = ? WHERE id = ?', [auth.hashPassword(b.next), user.id]);
     return send(res, 200, { ok: true });
   }
 
@@ -92,9 +92,9 @@ async function apiHandler(req, res, url) {
     need(user);
     const v = await version();
     if (url.searchParams.get('v') === String(v)) return send(res, 200, { version: v, unchanged: true });
-    const c = await db.one('SELECT data FROM config WHERE id = 1');
-    const rows = await db.q('SELECT id, data, by_user FROM records');
-    const names = Object.fromEntries((await db.q('SELECT id, name FROM users')).map(u => [u.id, u.name]));
+    const c = await db.one('SELECT data FROM cm_config WHERE id = 1');
+    const rows = await db.q('SELECT id, data, by_user FROM cm_records');
+    const names = Object.fromEntries((await db.q('SELECT id, name FROM cm_users')).map(u => [u.id, u.name]));
     const recs = rows.map(r => { const d = JSON.parse(r.data); d.id = r.id; if (r.by_user) d.by = r.by_user; return d; });
     return send(res, 200, { version: v, cfg: c ? JSON.parse(c.data) : { lines: [], std: {} }, recs, names });
   }
@@ -102,7 +102,7 @@ async function apiHandler(req, res, url) {
     need(user, 'admin'); const b = await readBody(req);
     if (!b.cfg || !Array.isArray(b.cfg.lines) || typeof b.cfg.std !== 'object') throw fail(400, 'Configuración inválida.');
     await db.batch([
-      ['INSERT INTO config (id, data, updated_by, updated_at) VALUES (1, ?, ?, datetime(\'now\')) ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_by = excluded.updated_by, updated_at = excluded.updated_at', [JSON.stringify(b.cfg), user.id]],
+      ['INSERT INTO cm_config (id, data, updated_by, updated_at) VALUES (1, ?, ?, datetime(\'now\')) ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_by = excluded.updated_by, updated_at = excluded.updated_at', [JSON.stringify(b.cfg), user.id]],
       db.BUMP,
     ]);
     return send(res, 200, { ok: true });
@@ -114,7 +114,7 @@ async function apiHandler(req, res, url) {
     const stmts = list.map(r => {
       if (!r || !r.lineId || !r.fromId || !r.toId || !/^\d{4}-\d{2}-\d{2}$/.test(r.date || '') || !(Number(r.minutes) >= 0)) throw fail(400, 'Registro incompleto.');
       const d = Object.assign({}, r); delete d.id; delete d.by; d.minutes = Number(d.minutes); d.createdAt = d.createdAt || Date.now();
-      return ['INSERT INTO records (id, data, by_user) VALUES (?, ?, ?)', [newId('r'), JSON.stringify(d), user.id]];
+      return ['INSERT INTO cm_records (id, data, by_user) VALUES (?, ?, ?)', [newId('r'), JSON.stringify(d), user.id]];
     });
     stmts.push(db.BUMP); await db.batch(stmts);
     return send(res, 200, { ok: true, added: list.length });
@@ -124,7 +124,7 @@ async function apiHandler(req, res, url) {
     const ids = (Array.isArray(b.ids) ? b.ids : []).map(String).slice(0, 5000);
     if (!ids.length) return send(res, 200, { ok: true, deleted: 0 });
     const stmts = [];
-    for (let i = 0; i < ids.length; i += 200) { const part = ids.slice(i, i + 200); stmts.push([`DELETE FROM records WHERE id IN (${part.map(() => '?').join(',')})`, part]); }
+    for (let i = 0; i < ids.length; i += 200) { const part = ids.slice(i, i + 200); stmts.push([`DELETE FROM cm_records WHERE id IN (${part.map(() => '?').join(',')})`, part]); }
     stmts.push(db.BUMP); await db.batch(stmts);
     return send(res, 200, { ok: true, deleted: ids.length });
   }
@@ -132,28 +132,28 @@ async function apiHandler(req, res, url) {
   // ----- usuarios (solo admin) -----
   if (route === '/api/users' && m === 'GET') {
     need(user, 'admin');
-    const us = await db.q('SELECT * FROM users ORDER BY created_at');
+    const us = await db.q('SELECT * FROM cm_users ORDER BY created_at');
     return send(res, 200, { users: us.map(pubUser) });
   }
   if (route === '/api/users' && m === 'POST') {
     need(user, 'admin'); const b = await readBody(req);
     const name = cleanName(b.name, 40), username = cleanName(b.username, 30).toLowerCase(), role = ROLES.includes(b.role) ? b.role : 'cap';
     if (!name || !username || String(b.password || '').length < 6) throw fail(400, 'Captura nombre, usuario y una contraseña de al menos 6 caracteres.');
-    if (await db.one('SELECT id FROM users WHERE username = ?', [username])) throw fail(409, 'Ese usuario ya existe.');
-    await db.exec('INSERT INTO users (id, username, name, password_hash, role) VALUES (?, ?, ?, ?, ?)', [newId('u'), username, name, auth.hashPassword(b.password), role]);
+    if (await db.one('SELECT id FROM cm_users WHERE username = ?', [username])) throw fail(409, 'Ese usuario ya existe.');
+    await db.exec('INSERT INTO cm_users (id, username, name, password_hash, role) VALUES (?, ?, ?, ?, ?)', [newId('u'), username, name, auth.hashPassword(b.password), role]);
     return send(res, 200, { ok: true });
   }
   const um = route.match(/^\/api\/users\/([\w-]+)$/);
   if (um && (m === 'PATCH' || m === 'DELETE')) {
     need(user, 'admin'); const id = um[1];
     if (id === user.id) throw fail(400, 'No puedes cambiar ni eliminar tu propio usuario desde aquí.');
-    const target = await db.one('SELECT * FROM users WHERE id = ?', [id]); if (!target) throw fail(404, 'Usuario no encontrado.');
-    if (m === 'DELETE') { await db.exec('DELETE FROM users WHERE id = ?', [id]); return send(res, 200, { ok: true }); }
+    const target = await db.one('SELECT * FROM cm_users WHERE id = ?', [id]); if (!target) throw fail(404, 'Usuario no encontrado.');
+    if (m === 'DELETE') { await db.exec('DELETE FROM cm_users WHERE id = ?', [id]); return send(res, 200, { ok: true }); }
     const b = await readBody(req);
-    if (b.role !== undefined) { if (!ROLES.includes(b.role)) throw fail(400, 'Rol inválido.'); await db.exec('UPDATE users SET role = ? WHERE id = ?', [b.role, id]); }
-    if (b.name !== undefined) await db.exec('UPDATE users SET name = ? WHERE id = ?', [cleanName(b.name, 40) || target.name, id]);
-    if (b.active !== undefined) await db.exec('UPDATE users SET active = ? WHERE id = ?', [b.active ? 1 : 0, id]);
-    if (b.password !== undefined) { if (String(b.password).length < 6) throw fail(400, 'Mínimo 6 caracteres.'); await db.exec('UPDATE users SET password_hash = ? WHERE id = ?', [auth.hashPassword(b.password), id]); }
+    if (b.role !== undefined) { if (!ROLES.includes(b.role)) throw fail(400, 'Rol inválido.'); await db.exec('UPDATE cm_users SET role = ? WHERE id = ?', [b.role, id]); }
+    if (b.name !== undefined) await db.exec('UPDATE cm_users SET name = ? WHERE id = ?', [cleanName(b.name, 40) || target.name, id]);
+    if (b.active !== undefined) await db.exec('UPDATE cm_users SET active = ? WHERE id = ?', [b.active ? 1 : 0, id]);
+    if (b.password !== undefined) { if (String(b.password).length < 6) throw fail(400, 'Mínimo 6 caracteres.'); await db.exec('UPDATE cm_users SET password_hash = ? WHERE id = ?', [auth.hashPassword(b.password), id]); }
     return send(res, 200, { ok: true });
   }
   throw fail(404, 'Ruta no encontrada.');

@@ -65,7 +65,7 @@ Sin `TURSO_DATABASE_URL`, los datos se guardan en `data/cambios.db`.
 ## Estructura
 ```
 server.js          Servidor (API + archivos estáticos). En Vercel corre como función.
-lib/db.js          Conexión a Turso (o SQLite local) y creación de tablas
+lib/db.js          Conexión a Turso (o SQLite local) y creación de tablas (prefijo cm_: cm_users, cm_config, cm_records, cm_meta)
 lib/auth.js        Contraseñas (scrypt) y sesión firmada en cookie httpOnly
 public/index.html  La app
 public/plantillas  Plantillas de Excel descargables
