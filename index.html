@@ -1433,7 +1433,13 @@ async function apiEnter(u) {
 }
 async function tryApi() {
   if (location.protocol === 'file:') return false;
-  let st; try { st = await api('GET', '/api/auth/status'); } catch (e) { return false; }
+  let st; try { st = await api('GET', '/api/auth/status'); }
+  catch (e) {
+    if (!e.status || e.status === 404) return false; // sin servidor (GitHub Pages / archivo): modo local
+    LAND.show(`<div class="stack"><div class="lerr" style="font-size:14px">El servidor respondió con un error y no se pudo conectar a la base de datos.</div><div class="lmsg" id="lSrvErr"></div><div class="lmsg">Revisa en Vercel que Turso esté conectado (variables TURSO_URL / TURSO_AUTH_TOKEN) y vuelve a desplegar.</div><button class="btn ghost" type="button" onclick="location.reload()">Reintentar</button></div>`);
+    $('#lSrvErr').textContent = 'Detalle: ' + e.message;
+    return true;
+  }
   if (typeof st.needsSetup !== 'boolean') return false;
   MODE = 'api';
   if (st.user) { apiEnter(st.user); return true; }
