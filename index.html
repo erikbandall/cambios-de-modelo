@@ -1,0 +1,1410 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitoreo de Cambios de Modelo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  color-scheme:light;
+  --bg:#f2f1ed; --surface:#fcfcfb; --surface-2:#f6f5f2; --border:#e2e1dc; --border-strong:#cfcec8;
+  --text:#0b0b0b; --text-2:#52514e; --muted:#8a8984;
+  --real:#2a78d6; --std:#9b9a95; --accent:#2a78d6;
+  --good:#0ca30c; --good-text:#006300; --bad:#d03b3b; --warn:#fab219;
+  --mid:#f0efec; --hatch:#e6e5e0;
+  --header:#16181b; --header-text:#f3f2ee;
+  --shadow:0 1px 2px rgba(0,0,0,.04),0 2px 8px rgba(0,0,0,.04);
+}
+@media (prefers-color-scheme: dark){
+  :root:where(:not([data-theme="light"])){
+    color-scheme:dark;
+    --bg:#111110; --surface:#1a1a19; --surface-2:#222220; --border:#2e2e2b; --border-strong:#3c3c38;
+    --text:#f0efec; --text-2:#c3c2b7; --muted:#8f8e86;
+    --real:#3987e5; --std:#77766f; --accent:#3987e5;
+    --good:#0ca30c; --good-text:#3fc23f; --bad:#e66767;
+    --mid:#383835; --hatch:#2a2a27; --header:#0b0b0a; --shadow:none;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:14px;line-height:1.45}
+.num,.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+header.top{background:var(--header);color:var(--header-text);padding:18px 24px 16px;border-bottom:3px solid var(--warn)}
+.top-inner{max-width:1400px;margin:0 auto;display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-end;justify-content:space-between}
+.eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#a9a8a1;font-weight:600}
+h1{margin:2px 0 0;font-size:22px;font-weight:700;letter-spacing:-.01em}
+.sync{font-size:12px;color:#a9a8a1;display:flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%;background:#77766f;display:inline-block}
+.dot.on{background:var(--good)} .dot.err{background:var(--bad)}
+main{max-width:1400px;margin:0 auto;padding:16px 24px 48px}
+.filters{position:sticky;top:0;z-index:5;background:var(--bg);padding:10px 0;display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;border-bottom:1px solid var(--border);margin-bottom:16px}
+.fgroup{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.flabel{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.seg{display:inline-flex;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:2px;flex-wrap:wrap}
+.seg button{border:0;background:transparent;color:var(--text-2);font:inherit;font-weight:500;padding:6px 12px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.seg button:hover{color:var(--text)}
+.seg button[aria-pressed="true"]{background:var(--text);color:var(--surface)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:16px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;box-shadow:var(--shadow)}
+.kpi .k{font-size:12px;color:var(--text-2);font-weight:500}
+.kpi .v{font-size:28px;font-weight:600;margin-top:4px;letter-spacing:-.02em}
+.kpi .v small{font-size:13px;color:var(--muted);font-weight:500;margin-left:3px}
+.kpi .s{font-size:12px;color:var(--muted);margin-top:2px;display:flex;gap:6px;align-items:center}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;padding:1px 7px;border-radius:999px}
+.badge.good{color:var(--good-text);background:color-mix(in srgb,var(--good) 14%,transparent)}
+.badge.bad{color:var(--bad);background:color-mix(in srgb,var(--bad) 13%,transparent)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow);margin-bottom:16px;min-width:0}
+.card-h{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:12px}
+.card h2{margin:0;font-size:16px;font-weight:600}
+.card .sub{font-size:12px;color:var(--muted);margin-top:2px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:900px){.grid2{grid-template-columns:1fr} main{padding:12px 12px 40px} header.top{padding:14px 14px} .filters{top:0}}
+/* Matrix */
+.mx-wrap{overflow-x:auto;margin:0 -4px;padding:0 4px 4px}
+#matrices{display:flex;flex-wrap:wrap;gap:22px 36px;align-items:flex-start}
+.mx-line{min-width:0;max-width:100%}
+.mx-title{display:flex;align-items:baseline;gap:10px;margin:0 0 8px}
+.mx-title b{font-size:14px}
+.mx-title span{font-size:12px;color:var(--muted)}
+table.mx{border-collapse:separate;border-spacing:2px;font-size:13px}
+table.mx th{font-weight:600;font-size:12px;color:var(--text-2);padding:6px 8px;white-space:nowrap;background:var(--surface-2);border-radius:4px}
+table.mx th.corner{background:transparent;font-size:10px;color:var(--muted);text-align:left;line-height:1.2;font-weight:500}
+table.mx th.rowh{text-align:right}
+table.mx td{min-width:78px;height:50px;text-align:center;border-radius:4px;padding:3px 6px;position:relative;cursor:default;background:var(--surface-2);transition:outline-color .1s}
+table.mx td.diag{background:repeating-linear-gradient(45deg,var(--hatch) 0 4px,transparent 4px 9px);color:var(--muted)}
+table.mx td.same{outline:2px dashed color-mix(in srgb,var(--text) 45%,transparent);outline-offset:-5px}
+table.mx td.empty{color:var(--muted);border:1px dashed var(--border-strong);background:transparent}
+table.mx td.click{cursor:pointer}
+table.mx td.click:hover{outline:2px solid var(--text);outline-offset:-2px}
+table.mx td .m{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:14px}
+table.mx td .n{font-size:10px;opacity:.8;display:block;margin-top:1px}
+.legend-row{display:flex;flex-wrap:wrap;gap:14px;align-items:center;font-size:12px;color:var(--text-2);margin-top:10px}
+.ramp{display:inline-flex;height:10px;border-radius:3px;overflow:hidden;width:140px;vertical-align:middle}
+.ramp i{flex:1}
+.lg{display:inline-flex;align-items:center;gap:6px}
+.sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+.chart-box{position:relative;height:300px}
+.chart-box.tall{height:360px}
+.empty-state{padding:28px 12px;text-align:center;color:var(--muted);font-size:13px}
+/* Forms */
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 12px;align-items:end}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text-2);font-weight:500}
+input,select,textarea{font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--border-strong);border-radius:7px;padding:8px 10px;min-width:0}
+input:focus,select:focus{outline:2px solid var(--accent);outline-offset:0;border-color:transparent}
+.btn{font:inherit;font-weight:600;border:1px solid var(--text);background:var(--text);color:var(--surface);padding:8px 14px;border-radius:7px;cursor:pointer;white-space:nowrap}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn.ghost{background:transparent;color:var(--text);border-color:var(--border-strong)}
+.btn.sm{padding:4px 10px;font-size:12px}
+.btn.danger{background:transparent;color:var(--bad);border-color:color-mix(in srgb,var(--bad) 40%,transparent)}
+.hint{font-size:12px;color:var(--muted)}
+.std-preview{font-size:13px;padding:8px 10px;border-radius:7px;background:var(--surface-2);border:1px solid var(--border)}
+/* Table */
+.tbl-wrap{overflow:auto;max-height:560px}
+table.rec thead th{position:sticky;top:0;background:var(--surface);z-index:1}
+table.rec{width:100%;border-collapse:collapse;font-size:13px}
+table.rec th{text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;padding:8px;border-bottom:1px solid var(--border);white-space:nowrap}
+table.rec td{padding:8px;border-bottom:1px solid var(--border);white-space:nowrap}
+table.rec td.r,table.rec th.r{text-align:right}
+table.rec tr:hover td{background:var(--surface-2)}
+.x{border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:15px;padding:2px 6px;border-radius:4px}
+.x:hover{color:var(--bad);background:var(--surface-2)}
+/* Config */
+.cfg-lines{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.cfg-line{border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--surface-2)}
+.cfg-line h3{margin:0 0 8px;font-size:14px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.chip{display:inline-flex;align-items:center;gap:2px;background:var(--surface);border:1px solid var(--border-strong);border-radius:999px;padding:2px 4px 2px 10px;font-size:12px;font-family:"IBM Plex Mono",monospace}
+.chip .x{font-size:13px;padding:0 5px}
+.row{display:flex;gap:8px}
+.row input{flex:1}
+/* Modal */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:50;padding:16px}
+.modal-bg.open{display:flex}
+.modal{background:var(--surface);border-radius:12px;padding:20px;width:min(420px,100%);border:1px solid var(--border)}
+.modal h3{margin:0 0 4px;font-size:16px}
+.modal p{margin:0 0 14px;color:var(--text-2);font-size:13px}
+.modal .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.modal.bk{width:min(1180px,100%);max-height:92vh;display:flex;flex-direction:column}
+.bk-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 16px;align-items:start}
+.bk-grid .row input[type=time]{padding:6px;min-width:0}
+.bk-reasons{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;max-height:84px;overflow:auto;margin-top:4px}
+.bk-reasons label{display:inline-flex;gap:5px;align-items:center}
+.bk-tbl{overflow:auto;flex:1;min-height:160px;margin-top:12px;border:1px solid var(--border);border-radius:8px}
+.bk-tbl table.rec td{padding:4px 6px} .bk-tbl select{padding:4px 6px;font-size:12px;max-width:210px}
+.bk-tbl thead th{position:sticky;top:0;background:var(--surface);z-index:1}
+tr.bk-off td{opacity:.55}
+.who-chip{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);border-radius:999px;padding:3px 12px 3px 3px;font-size:12px}
+.who-chip img{width:26px;height:26px;border-radius:50%}
+.who-chip b{font-weight:600;margin-right:6px}
+.who-chip .role{font-size:11px;padding:1px 7px;border-radius:999px;background:var(--warn);color:#16181b;font-weight:600}
+.who-chip .role.ro{background:#77766f;color:#fff}
+.gate{background:color-mix(in srgb,var(--warn) 14%,var(--surface));border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:13px;display:none}
+.gate.show{display:block}
+ #landing{position:fixed;inset:0;z-index:100;display:none;flex-direction:column;align-items:center;justify-content:center;padding:20px;
+  background:radial-gradient(1200px 600px at 20% -10%,#2a3442 0%,transparent 60%),linear-gradient(160deg,#16181b 0%,#0e0f11 100%);color:#f3f2ee}
+#landing.open{display:flex}
+body.locked{overflow:hidden}
+.land-card{width:min(420px,100%);background:#1d2024;border:1px solid #2e3238;border-top:3px solid var(--warn);border-radius:14px;padding:26px 26px 22px;box-shadow:0 20px 60px rgba(0,0,0,.45)}
+.land-brand{display:flex;gap:12px;align-items:center;margin-bottom:20px}
+.land-logo{width:42px;height:42px;border-radius:10px;background:var(--warn);color:#16181b;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700}
+.land-h{font-size:18px;font-weight:700;letter-spacing:-.01em}
+.land-wait{color:#a9a8a1;font-size:14px;padding:14px 0}
+#landing label.f{color:#c3c2b7}
+#landing input,#landing select{background:#121416;border-color:#3a3f46;color:#f3f2ee;width:100%}
+#landing .btn{background:var(--warn);border-color:var(--warn);color:#16181b;width:100%;padding:11px;font-size:15px;margin-top:6px}
+#landing .btn.ghost{background:transparent;color:#f3f2ee;border-color:#3a3f46}
+#landing .stack{display:flex;flex-direction:column;gap:12px}
+#landing .lmsg{font-size:13px;color:#c3c2b7;line-height:1.5}
+#landing .lerr{font-size:13px;color:#ff8a87;min-height:18px}
+#landing .me{display:flex;gap:12px;align-items:center;background:#121416;border:1px solid #2e3238;border-radius:10px;padding:12px;margin-bottom:12px}
+#landing .me img{width:44px;height:44px;border-radius:50%}
+#landing .me b{display:block;font-size:15px}
+#landing .role{display:inline-block;margin-top:3px;font-size:11px;padding:1px 8px;border-radius:999px;background:var(--warn);color:#16181b;font-weight:600}
+#landing .role.ro{background:#77766f;color:#fff}
+.land-foot{margin-top:16px;font-size:12px;color:#77766f}
+.who-out{margin-left:8px;border:0;background:transparent;color:#a9a8a1;font:inherit;font-size:11px;cursor:pointer;text-decoration:underline}
+.who-out:hover{color:#fff}
+.users-tbl td,.users-tbl th{padding:6px 8px}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--surface);padding:10px 16px;border-radius:8px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:60}
+.toast.show{opacity:1}
+.banner{background:color-mix(in srgb,var(--warn) 18%,var(--surface));border:1px solid color-mix(in srgb,var(--warn) 50%,transparent);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:13px;display:none;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.banner.show{display:flex}
+details.tv summary{cursor:pointer;font-size:12px;color:var(--text-2);margin-top:8px}
+details.tv table{font-size:12px;margin-top:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body class="locked">
+<div id="landing" class="open" role="dialog" aria-modal="true" aria-labelledby="landTitle">
+  <div class="land-card">
+    <div class="land-brand"><div class="land-logo">⚙</div><div><div class="eyebrow">Manufactura · SMED</div><div class="land-h" id="landTitle">Monitoreo de Cambios de Modelo</div></div></div>
+    <div id="landBody"><div class="land-wait">Verificando tu acceso…</div></div>
+  </div>
+  <div class="land-foot">Press · Driveshaft · Matriz de cambio, real vs estándar</div>
+</div>
+<header class="top">
+  <div class="top-inner">
+    <div>
+      <div class="eyebrow">Manufactura · SMED</div>
+      <h1>Monitoreo de Cambios de Modelo</h1>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px"><div class="who-chip" id="whoChip" hidden><img id="whoAv" alt=""><span><b id="whoName"></b><span id="whoRole" class="role"></span></span><button class="who-out" id="whoOut" type="button" title="Salir">Salir</button></div><div class="sync"><span class="dot" id="syncDot"></span><span id="syncText">Conectando…</span></div></div>
+  </div>
+</header>
+
+<main>
+  <div class="filters" role="toolbar" aria-label="Filtros">
+    <div class="fgroup"><span class="flabel">Línea</span><div class="seg" id="lineSeg"></div></div>
+    <div class="fgroup"><span class="flabel">Periodo</span>
+      <div class="seg" id="periodSeg">
+        <button data-p="7">7 días</button><button data-p="30">30 días</button><button data-p="90">90 días</button><button data-p="0">Todo</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="gate" id="roleNote"></div>
+  <div class="banner" id="demoBanner">
+    <span>Se están mostrando <b>datos de ejemplo</b>. Registra tus cambios reales y elimina los de ejemplo cuando estés listo.</span>
+    <button class="btn sm danger" id="clearDemo">Eliminar registros de ejemplo</button>
+  </div>
+
+  <section class="kpis" id="kpis" aria-label="Indicadores"></section>
+
+  <section class="card">
+    <div class="card-h">
+      <div>
+        <h2>Matriz de cambio de modelo (De → A)</h2>
+        <div class="sub" id="mxSub">Filas: modelo que sale · Columnas: modelo que entra · minutos</div>
+      </div>
+      <div class="seg" id="mxMode">
+        <button data-m="std">Estándar</button><button data-m="real">Real promedio</button><button data-m="dev">Desviación</button>
+      </div>
+    </div>
+    <div id="matrices"></div>
+    <div class="legend-row" id="mxLegend"></div>
+  </section>
+
+  <div class="grid2">
+    <section class="card">
+      <div class="card-h"><div><h2>Real vs estándar por transición</h2><div class="sub">Promedio en minutos · transiciones más frecuentes</div></div></div>
+      <div class="chart-box tall"><canvas id="cTrans" aria-label="Real vs estándar por transición"></canvas></div>
+      <div id="cTransEmpty" class="empty-state" hidden>Sin cambios registrados en este filtro.</div>
+    </section>
+    <section class="card">
+      <div class="card-h"><div><h2>Tendencia diaria</h2><div class="sub">Promedio real vs estándar por día · minutos</div></div></div>
+      <div class="chart-box tall"><canvas id="cTrend" aria-label="Tendencia diaria real vs estándar"></canvas></div>
+      <div id="cTrendEmpty" class="empty-state" hidden>Sin cambios registrados en este filtro.</div>
+    </section>
+  </div>
+
+  <div class="grid2">
+    <section class="card">
+      <div class="card-h"><div><h2 id="cGroupTitle">Real vs estándar por línea</h2><div class="sub">Promedio en minutos</div></div></div>
+      <div class="chart-box"><canvas id="cGroup"></canvas></div>
+      <div id="cGroupEmpty" class="empty-state" hidden>Sin datos.</div>
+    </section>
+    <section class="card">
+      <div class="card-h"><div><h2>Minutos perdidos vs estándar</h2><div class="sub">Suma de excedentes (real − estándar) por transición</div></div></div>
+      <div class="chart-box"><canvas id="cLost"></canvas></div>
+      <div id="cLostEmpty" class="empty-state" hidden>Sin excedentes en este filtro.</div>
+    </section>
+  </div>
+
+  <section class="card" id="xlCard">
+    <div class="card-h">
+      <div><h2>Cargar información desde Excel</h2><div class="sub">Sube la plantilla llena (líneas, modelos, estándares y cambios). Antes de aplicar verás un resumen con los errores.</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <label class="btn" id="xlImportBtn" style="display:inline-flex;align-items:center;gap:6px">⬆ Importar Excel<input type="file" id="xlFile" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="sr"></label>
+        <button class="btn ghost" id="xlExport" type="button">⬇ Exportar a Excel</button>
+      </div>
+    </div>
+    <div class="hint">El archivo exportado tiene las mismas hojas que la plantilla, así que puedes editarlo y volver a subirlo.</div>
+  </section>
+
+  <section class="card" id="regCard">
+    <div class="card-h"><div><h2>Registrar cambio de modelo</h2><div class="sub">Captura el tiempo real del cambio (último bueno a primero bueno), o súbelos de forma masiva desde Excel / CSV (Ignition)</div></div>
+      <label class="btn ghost" id="bulkBtn" style="display:inline-flex;align-items:center;gap:6px">⬆ Importar registros (masivo)<input type="file" id="bulkFile" accept=".xlsx,.csv,.txt" class="sr"></label></div>
+    <form class="form" id="regForm" autocomplete="off">
+      <label class="f">Línea<select id="fLine" required></select></label>
+      <label class="f">De modelo<select id="fFrom" required></select></label>
+      <label class="f">A modelo<select id="fTo" required></select></label>
+      <label class="f">Fecha<input type="date" id="fDate" required></label>
+      <label class="f">Turno<select id="fShift"><option>1</option><option>2</option><option>3</option></select></label>
+      <label class="f">Minutos reales<input type="number" id="fMin" min="0" step="0.1" required inputmode="decimal"></label>
+      <label class="f" style="grid-column:span 2">Notas / causa de desviación<input type="text" id="fNotes" maxlength="200" placeholder="Opcional"></label>
+      <div class="std-preview" id="fStd">Estándar: —</div>
+      <button class="btn" type="submit" id="fSubmit">Registrar</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="card-h">
+      <div><h2>Registros</h2><div class="sub" id="recSub"></div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn danger sm" id="delSel" hidden>Borrar seleccionados</button><button class="btn danger sm" id="delAll">🗑 Borrar registros…</button><button class="btn ghost sm" id="copyCsv">Copiar CSV</button></div>
+    </div>
+    <div class="tbl-wrap"><table class="rec" id="recTbl"></table></div>
+  </section>
+
+  <section class="card">
+    <div class="card-h"><div><h2>Configuración de líneas y modelos</h2><div class="sub">Agrega líneas y modelos; los estándares se editan tocando la celda en la matriz (vista «Estándar»).</div></div></div>
+    <div class="cfg-lines" id="cfgLines"></div>
+    <form class="row" id="addLineForm" style="margin-top:12px;max-width:420px">
+      <input id="newLine" placeholder="Nueva línea (ej. Pintura)" maxlength="40">
+      <button class="btn" type="submit">Agregar línea</button>
+    </form>
+  </section>
+
+  <section class="card" id="usersCard" hidden>
+    <div class="card-h"><div><h2>Usuarios de esta computadora</h2><div class="sub">Solo para el archivo HTML: usuarios y contraseñas guardados en este navegador. Sirven para saber quién captura y qué puede hacer cada quien; no son una protección fuerte.</div></div></div>
+    <div class="tbl-wrap"><table class="rec users-tbl" id="usersTbl"></table></div>
+    <form class="form" id="addUserForm" style="margin-top:12px" autocomplete="off">
+      <label class="f">Nombre<input id="nuName" maxlength="40" required></label>
+      <label class="f">Usuario<input id="nuUser" maxlength="30" required autocapitalize="off"></label>
+      <label class="f">Contraseña<input id="nuPass" type="password" minlength="4" maxlength="60" required></label>
+      <label class="f">Rol<select id="nuRole"><option value="cap">Capturista</option><option value="admin">Administrador</option><option value="ro">Solo lectura</option></select></label>
+      <button class="btn" type="submit">Agregar usuario</button>
+    </form>
+  </section>
+</main>
+
+<div class="modal-bg" id="modalBg" role="dialog" aria-modal="true">
+  <div class="modal">
+    <h3 id="mTitle"></h3>
+    <p id="mText"></p>
+    <div id="mBody"></div>
+    <div class="acts"><button class="btn ghost" id="mCancel">Cancelar</button><button class="btn" id="mOk">Guardar</button></div>
+  </div>
+</div>
+<div class="modal-bg" id="bulkBg" role="dialog" aria-modal="true">
+  <div class="modal bk">
+    <h3 id="bulkTitle">Importar registros</h3>
+    <p>Revisa cómo se interpretó el archivo. Puedes corregir la línea y los modelos de cada fila antes de importar.</p>
+    <div id="bulkCfg"></div>
+    <div class="bk-tbl"><table class="rec" id="bulkTbl"></table></div>
+    <div class="acts" style="justify-content:space-between;align-items:center;flex-wrap:wrap"><span class="hint" id="bulkSum"></span><span style="display:flex;gap:8px"><button class="btn ghost" id="bulkCancel">Cancelar</button><button class="btn" id="bulkOk">Importar</button></span></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script type="application/json" id="demoData">{"cfg":{"lines":[{"id":"prensa","name":"Prensa","models":[{"id":"pr0","name":"PR-1020"},{"id":"pr1","name":"PR-1045"},{"id":"pr2","name":"PR-2210"},{"id":"pr3","name":"PR-3300"}]},{"id":"maquinados","name":"Maquinados","models":[{"id":"ma0","name":"MQ-510"},{"id":"ma1","name":"MQ-525"},{"id":"ma2","name":"MQ-640"},{"id":"ma3","name":"MQ-700"},{"id":"ma4","name":"MQ-815"}]},{"id":"cardano","name":"Barras Cardano","models":[{"id":"ca0","name":"BC-1300"},{"id":"ca1","name":"BC-1450"},{"id":"ca2","name":"BC-1600"},{"id":"ca3","name":"BC-1800"}]}],"std":{"prensa":{"pr0__pr1":23,"pr0__pr2":29,"pr0__pr3":36,"pr1__pr0":25,"pr1__pr2":27,"pr1__pr3":31,"pr2__pr0":32,"pr2__pr1":25,"pr2__pr3":27,"pr3__pr0":36,"pr3__pr1":33,"pr3__pr2":23},"maquinados":{"ma0__ma1":36,"ma0__ma2":41,"ma0__ma3":49,"ma0__ma4":56,"ma1__ma0":36,"ma1__ma2":36,"ma1__ma3":44,"ma1__ma4":49,"ma2__ma0":45,"ma2__ma1":34,"ma2__ma3":34,"ma2__ma4":43,"ma3__ma0":52,"ma3__ma1":40,"ma3__ma2":37,"ma3__ma4":37,"ma4__ma0":57,"ma4__ma1":49,"ma4__ma2":44,"ma4__ma3":37},"cardano":{"ca0__ca1":42,"ca0__ca2":56,"ca0__ca3":70,"ca1__ca0":45,"ca1__ca2":47,"ca1__ca3":56,"ca2__ca0":55,"ca2__ca1":43,"ca2__ca3":45,"ca3__ca0":71,"ca3__ca1":59,"ca3__ca2":43}}},"recs":[{"lineId":"prensa","fromId":"pr0","toId":"pr2","date":"2026-10-02","shift":"3","minutes":28.9,"notes":"","demo":true,"createdAt":1790899200000},{"lineId":"prensa","fromId":"pr2","toId":"pr3","date":"2026-10-02","shift":"2","minutes":23.3,"notes":"","demo":true,"createdAt":1790899201000},{"lineId":"prensa","fromId":"pr3","toId":"pr0","date":"2026-10-03","shift":"2","minutes":36.1,"notes":"","demo":true,"createdAt":1790985600000},{"lineId":"prensa","fromId":"pr0","toId":"pr2","date":"2026-10-05","shift":"1","minutes":31.6,"notes":"","demo":true,"createdAt":1791158400000},{"lineId":"prensa","fromId":"pr2","toId":"pr1","date":"2026-10-05","shift":"2","minutes":30,"notes":"","demo":true,"createdAt":1791158401000},{"lineId":"prensa","fromId":"pr1","toId":"pr3","date":"2026-10-06","shift":"2","minutes":30,"notes":"","demo":true,"createdAt":1791244800000},{"lineId":"prensa","fromId":"pr3","toId":"pr2","date":"2026-10-08","shift":"2","minutes":22.1,"notes":"","demo":true,"createdAt":1791417600000},{"lineId":"prensa","fromId":"pr2","toId":"pr1","date":"2026-10-08","shift":"2","minutes":27.9,"notes":"","demo":true,"createdAt":1791417601000},{"lineId":"prensa","fromId":"pr1","toId":"pr0","date":"2026-10-10","shift":"2","minutes":33.7,"notes":"Cambio de mordazas tardado","demo":true,"createdAt":1791590400000},{"lineId":"prensa","fromId":"pr0","toId":"pr2","date":"2026-10-10","shift":"2","minutes":28.9,"notes":"","demo":true,"createdAt":1791590401000},{"lineId":"prensa","fromId":"pr2","toId":"pr3","date":"2026-10-11","shift":"3","minutes":23.1,"notes":"","demo":true,"createdAt":1791676800000},{"lineId":"prensa","fromId":"pr3","toId":"pr1","date":"2026-10-11","shift":"2","minutes":40.9,"notes":"Ajuste de dados","demo":true,"createdAt":1791676801000},{"lineId":"prensa","fromId":"pr1","toId":"pr3","date":"2026-10-12","shift":"3","minutes":30.3,"notes":"","demo":true,"createdAt":1791763200000},{"lineId":"prensa","fromId":"pr3","toId":"pr0","date":"2026-10-12","shift":"1","minutes":36.9,"notes":"","demo":true,"createdAt":1791763201000},{"lineId":"prensa","fromId":"pr0","toId":"pr2","date":"2026-10-14","shift":"2","minutes":24.1,"notes":"","demo":true,"createdAt":1791936000000},{"lineId":"prensa","fromId":"pr2","toId":"pr3","date":"2026-10-15","shift":"3","minutes":26.8,"notes":"","demo":true,"createdAt":1792022400000},{"lineId":"prensa","fromId":"pr3","toId":"pr0","date":"2026-10-16","shift":"1","minutes":34.9,"notes":"","demo":true,"createdAt":1792108800000},{"lineId":"prensa","fromId":"pr0","toId":"pr1","date":"2026-10-16","shift":"1","minutes":24.4,"notes":"","demo":true,"createdAt":1792108801000},{"lineId":"prensa","fromId":"pr1","toId":"pr2","date":"2026-10-17","shift":"3","minutes":29,"notes":"","demo":true,"createdAt":1792195200000},{"lineId":"prensa","fromId":"pr2","toId":"pr1","date":"2026-10-19","shift":"1","minutes":32.4,"notes":"Espera de calidad (primera pieza)","demo":true,"createdAt":1792368000000},{"lineId":"prensa","fromId":"pr1","toId":"pr3","date":"2026-10-21","shift":"3","minutes":28.7,"notes":"","demo":true,"createdAt":1792540800000},{"lineId":"prensa","fromId":"pr3","toId":"pr0","date":"2026-10-21","shift":"2","minutes":43.4,"notes":"Falta de montacargas","demo":true,"createdAt":1792540801000},{"lineId":"prensa","fromId":"pr0","toId":"pr3","date":"2026-10-25","shift":"3","minutes":40.6,"notes":"","demo":true,"createdAt":1792886400000},{"lineId":"prensa","fromId":"pr3","toId":"pr0","date":"2026-10-26","shift":"1","minutes":42.3,"notes":"","demo":true,"createdAt":1792972800000},{"lineId":"prensa","fromId":"pr0","toId":"pr1","date":"2026-10-27","shift":"3","minutes":31.5,"notes":"Cambio de mordazas tardado","demo":true,"createdAt":1793059200000},{"lineId":"prensa","fromId":"pr1","toId":"pr3","date":"2026-10-27","shift":"2","minutes":37,"notes":"","demo":true,"createdAt":1793059201000},{"lineId":"prensa","fromId":"pr3","toId":"pr1","date":"2026-10-29","shift":"2","minutes":34.8,"notes":"","demo":true,"createdAt":1793232000000},{"lineId":"prensa","fromId":"pr1","toId":"pr3","date":"2026-10-29","shift":"2","minutes":34.4,"notes":"","demo":true,"createdAt":1793232001000},{"lineId":"prensa","fromId":"pr3","toId":"pr1","date":"2026-10-30","shift":"2","minutes":41.1,"notes":"Falta de herramental en sitio","demo":true,"createdAt":1793318400000},{"lineId":"prensa","fromId":"pr1","toId":"pr2","date":"2026-10-30","shift":"3","minutes":33,"notes":"Falta de montacargas","demo":true,"createdAt":1793318401000},{"lineId":"prensa","fromId":"pr2","toId":"pr0","date":"2026-10-31","shift":"1","minutes":31.1,"notes":"","demo":true,"createdAt":1793404800000},{"lineId":"prensa","fromId":"pr0","toId":"pr1","date":"2026-10-31","shift":"3","minutes":28.1,"notes":"Cambio de mordazas tardado","demo":true,"createdAt":1793404801000},{"lineId":"prensa","fromId":"pr1","toId":"pr2","date":"2026-11-01","shift":"2","minutes":25,"notes":"","demo":true,"createdAt":1793491200000},{"lineId":"prensa","fromId":"pr2","toId":"pr3","date":"2026-11-02","shift":"2","minutes":24.8,"notes":"","demo":true,"createdAt":1793577600000},{"lineId":"prensa","fromId":"pr3","toId":"pr0","date":"2026-11-02","shift":"1","minutes":30.5,"notes":"","demo":true,"createdAt":1793577601000},{"lineId":"prensa","fromId":"pr0","toId":"pr2","date":"2026-11-03","shift":"1","minutes":24.4,"notes":"","demo":true,"createdAt":1793664000000},{"lineId":"prensa","fromId":"pr2","toId":"pr0","date":"2026-11-04","shift":"3","minutes":32.1,"notes":"","demo":true,"createdAt":1793750400000},{"lineId":"prensa","fromId":"pr0","toId":"pr2","date":"2026-11-05","shift":"1","minutes":30.3,"notes":"","demo":true,"createdAt":1793836800000},{"lineId":"prensa","fromId":"pr2","toId":"pr3","date":"2026-11-05","shift":"3","minutes":23.5,"notes":"","demo":true,"createdAt":1793836801000},{"lineId":"prensa","fromId":"pr3","toId":"pr0","date":"2026-11-06","shift":"1","minutes":31,"notes":"","demo":true,"createdAt":1793923200000},{"lineId":"prensa","fromId":"pr0","toId":"pr1","date":"2026-11-09","shift":"1","minutes":23.7,"notes":"","demo":true,"createdAt":1794182400000},{"lineId":"prensa","fromId":"pr1","toId":"pr2","date":"2026-11-09","shift":"2","minutes":25.3,"notes":"","demo":true,"createdAt":1794182401000},{"lineId":"prensa","fromId":"pr2","toId":"pr3","date":"2026-11-10","shift":"2","minutes":24.6,"notes":"","demo":true,"createdAt":1794268800000},{"lineId":"prensa","fromId":"pr3","toId":"pr0","date":"2026-11-11","shift":"3","minutes":39.5,"notes":"","demo":true,"createdAt":1794355200000},{"lineId":"prensa","fromId":"pr0","toId":"pr1","date":"2026-11-13","shift":"2","minutes":24.2,"notes":"","demo":true,"createdAt":1794528000000},{"lineId":"prensa","fromId":"pr1","toId":"pr0","date":"2026-11-13","shift":"1","minutes":23.5,"notes":"","demo":true,"createdAt":1794528001000},{"lineId":"prensa","fromId":"pr0","toId":"pr1","date":"2026-11-14","shift":"1","minutes":31.3,"notes":"Espera de calidad (primera pieza)","demo":true,"createdAt":1794614400000},{"lineId":"prensa","fromId":"pr1","toId":"pr2","date":"2026-11-14","shift":"1","minutes":22.8,"notes":"","demo":true,"createdAt":1794614401000},{"lineId":"prensa","fromId":"pr2","toId":"pr0","date":"2026-11-15","shift":"3","minutes":32.8,"notes":"","demo":true,"createdAt":1794700800000},{"lineId":"prensa","fromId":"pr0","toId":"pr3","date":"2026-11-16","shift":"3","minutes":42,"notes":"","demo":true,"createdAt":1794787200000},{"lineId":"maquinados","fromId":"ma0","toId":"ma1","date":"2026-10-02","shift":"2","minutes":36.2,"notes":"","demo":true,"createdAt":1790899200000},{"lineId":"maquinados","fromId":"ma1","toId":"ma2","date":"2026-10-04","shift":"3","minutes":47.9,"notes":"Falta de herramental en sitio","demo":true,"createdAt":1791072000000},{"lineId":"maquinados","fromId":"ma2","toId":"ma1","date":"2026-10-04","shift":"1","minutes":35.4,"notes":"","demo":true,"createdAt":1791072001000},{"lineId":"maquinados","fromId":"ma1","toId":"ma3","date":"2026-10-06","shift":"1","minutes":64.6,"notes":"Ajuste de dados","demo":true,"createdAt":1791244800000},{"lineId":"maquinados","fromId":"ma3","toId":"ma0","date":"2026-10-07","shift":"2","minutes":54.4,"notes":"","demo":true,"createdAt":1791331200000},{"lineId":"maquinados","fromId":"ma0","toId":"ma1","date":"2026-10-07","shift":"2","minutes":44.3,"notes":"Falta de montacargas","demo":true,"createdAt":1791331201000},{"lineId":"maquinados","fromId":"ma1","toId":"ma2","date":"2026-10-10","shift":"3","minutes":45.9,"notes":"Falta de montacargas","demo":true,"createdAt":1791590400000},{"lineId":"maquinados","fromId":"ma2","toId":"ma3","date":"2026-10-10","shift":"1","minutes":43.5,"notes":"Falta de herramental en sitio","demo":true,"createdAt":1791590401000},{"lineId":"maquinados","fromId":"ma3","toId":"ma2","date":"2026-10-11","shift":"1","minutes":30.7,"notes":"","demo":true,"createdAt":1791676800000},{"lineId":"maquinados","fromId":"ma2","toId":"ma4","date":"2026-10-12","shift":"3","minutes":45.9,"notes":"","demo":true,"createdAt":1791763200000},{"lineId":"maquinados","fromId":"ma4","toId":"ma0","date":"2026-10-12","shift":"2","minutes":70.4,"notes":"Falta de montacargas","demo":true,"createdAt":1791763201000},{"lineId":"maquinados","fromId":"ma0","toId":"ma1","date":"2026-10-13","shift":"2","minutes":45.3,"notes":"Cambio de mordazas tardado","demo":true,"createdAt":1791849600000},{"lineId":"maquinados","fromId":"ma1","toId":"ma2","date":"2026-10-13","shift":"3","minutes":49.8,"notes":"Falta de montacargas","demo":true,"createdAt":1791849601000},{"lineId":"maquinados","fromId":"ma2","toId":"ma0","date":"2026-10-14","shift":"1","minutes":61.2,"notes":"Falta de herramental en sitio","demo":true,"createdAt":1791936000000},{"lineId":"maquinados","fromId":"ma0","toId":"ma4","date":"2026-10-14","shift":"1","minutes":75,"notes":"Falta de herramental en sitio","demo":true,"createdAt":1791936001000},{"lineId":"maquinados","fromId":"ma4","toId":"ma0","date":"2026-10-16","shift":"1","minutes":60.6,"notes":"","demo":true,"createdAt":1792108800000},{"lineId":"maquinados","fromId":"ma0","toId":"ma1","date":"2026-10-16","shift":"2","minutes":38.9,"notes":"","demo":true,"createdAt":1792108801000},{"lineId":"maquinados","fromId":"ma1","toId":"ma0","date":"2026-10-19","shift":"1","minutes":33.8,"notes":"","demo":true,"createdAt":1792368000000},{"lineId":"maquinados","fromId":"ma0","toId":"ma4","date":"2026-10-20","shift":"2","minutes":69.1,"notes":"Falta de montacargas","demo":true,"createdAt":1792454400000},{"lineId":"maquinados","fromId":"ma4","toId":"ma0","date":"2026-10-21","shift":"3","minutes":70.9,"notes":"Falta de montacargas","demo":true,"createdAt":1792540800000},{"lineId":"maquinados","fromId":"ma0","toId":"ma3","date":"2026-10-21","shift":"1","minutes":56.7,"notes":"","demo":true,"createdAt":1792540801000},{"lineId":"maquinados","fromId":"ma3","toId":"ma2","date":"2026-10-23","shift":"2","minutes":33.2,"notes":"","demo":true,"createdAt":1792713600000},{"lineId":"maquinados","fromId":"ma2","toId":"ma3","date":"2026-10-23","shift":"1","minutes":35.7,"notes":"","demo":true,"createdAt":1792713601000},{"lineId":"maquinados","fromId":"ma3","toId":"ma1","date":"2026-10-25","shift":"1","minutes":39.2,"notes":"","demo":true,"createdAt":1792886400000},{"lineId":"maquinados","fromId":"ma1","toId":"ma0","date":"2026-10-28","shift":"1","minutes":42.8,"notes":"","demo":true,"createdAt":1793145600000},{"lineId":"maquinados","fromId":"ma0","toId":"ma2","date":"2026-10-28","shift":"3","minutes":46.6,"notes":"","demo":true,"createdAt":1793145601000},{"lineId":"maquinados","fromId":"ma2","toId":"ma3","date":"2026-10-30","shift":"1","minutes":39.3,"notes":"","demo":true,"createdAt":1793318400000},{"lineId":"maquinados","fromId":"ma3","toId":"ma1","date":"2026-11-01","shift":"3","minutes":41.4,"notes":"","demo":true,"createdAt":1793491200000},{"lineId":"maquinados","fromId":"ma1","toId":"ma2","date":"2026-11-01","shift":"1","minutes":42,"notes":"","demo":true,"createdAt":1793491201000},{"lineId":"maquinados","fromId":"ma2","toId":"ma3","date":"2026-11-03","shift":"3","minutes":40,"notes":"","demo":true,"createdAt":1793664000000},{"lineId":"maquinados","fromId":"ma3","toId":"ma4","date":"2026-11-03","shift":"3","minutes":46.8,"notes":"Cambio de mordazas tardado","demo":true,"createdAt":1793664001000},{"lineId":"maquinados","fromId":"ma4","toId":"ma3","date":"2026-11-04","shift":"3","minutes":32.3,"notes":"","demo":true,"createdAt":1793750400000},{"lineId":"maquinados","fromId":"ma3","toId":"ma4","date":"2026-11-06","shift":"3","minutes":41.6,"notes":"","demo":true,"createdAt":1793923200000},{"lineId":"maquinados","fromId":"ma4","toId":"ma0","date":"2026-11-06","shift":"1","minutes":52.9,"notes":"","demo":true,"createdAt":1793923201000},{"lineId":"maquinados","fromId":"ma0","toId":"ma3","date":"2026-11-09","shift":"3","minutes":55.3,"notes":"","demo":true,"createdAt":1794182400000},{"lineId":"maquinados","fromId":"ma3","toId":"ma4","date":"2026-11-09","shift":"2","minutes":37.6,"notes":"","demo":true,"createdAt":1794182401000},{"lineId":"maquinados","fromId":"ma4","toId":"ma2","date":"2026-11-10","shift":"2","minutes":49.3,"notes":"","demo":true,"createdAt":1794268800000},{"lineId":"maquinados","fromId":"ma2","toId":"ma1","date":"2026-11-11","shift":"3","minutes":30.5,"notes":"","demo":true,"createdAt":1794355200000},{"lineId":"maquinados","fromId":"ma1","toId":"ma4","date":"2026-11-14","shift":"1","minutes":49.8,"notes":"","demo":true,"createdAt":1794614400000},{"lineId":"maquinados","fromId":"ma4","toId":"ma3","date":"2026-11-14","shift":"2","minutes":34.5,"notes":"","demo":true,"createdAt":1794614401000},{"lineId":"maquinados","fromId":"ma3","toId":"ma1","date":"2026-11-15","shift":"2","minutes":31.1,"notes":"","demo":true,"createdAt":1794700800000},{"lineId":"maquinados","fromId":"ma1","toId":"ma3","date":"2026-11-16","shift":"2","minutes":50.1,"notes":"","demo":true,"createdAt":1794787200000},{"lineId":"maquinados","fromId":"ma3","toId":"ma1","date":"2026-11-16","shift":"1","minutes":31.1,"notes":"","demo":true,"createdAt":1794787201000},{"lineId":"cardano","fromId":"ca0","toId":"ca2","date":"2026-10-02","shift":"1","minutes":59.7,"notes":"","demo":true,"createdAt":1790899200000},{"lineId":"cardano","fromId":"ca2","toId":"ca3","date":"2026-10-02","shift":"1","minutes":45.6,"notes":"","demo":true,"createdAt":1790899201000},{"lineId":"cardano","fromId":"ca3","toId":"ca2","date":"2026-10-04","shift":"1","minutes":49.9,"notes":"","demo":true,"createdAt":1791072000000},{"lineId":"cardano","fromId":"ca2","toId":"ca3","date":"2026-10-04","shift":"1","minutes":59,"notes":"Cambio de mordazas tardado","demo":true,"createdAt":1791072001000},{"lineId":"cardano","fromId":"ca3","toId":"ca0","date":"2026-10-05","shift":"1","minutes":71.9,"notes":"","demo":true,"createdAt":1791158400000},{"lineId":"cardano","fromId":"ca0","toId":"ca2","date":"2026-10-05","shift":"2","minutes":51.4,"notes":"","demo":true,"createdAt":1791158401000},{"lineId":"cardano","fromId":"ca2","toId":"ca0","date":"2026-10-06","shift":"3","minutes":62.3,"notes":"","demo":true,"createdAt":1791244800000},{"lineId":"cardano","fromId":"ca0","toId":"ca3","date":"2026-10-06","shift":"2","minutes":77.6,"notes":"","demo":true,"createdAt":1791244801000},{"lineId":"cardano","fromId":"ca3","toId":"ca1","date":"2026-10-08","shift":"3","minutes":57.2,"notes":"","demo":true,"createdAt":1791417600000},{"lineId":"cardano","fromId":"ca1","toId":"ca2","date":"2026-10-08","shift":"1","minutes":53.8,"notes":"","demo":true,"createdAt":1791417601000},{"lineId":"cardano","fromId":"ca2","toId":"ca3","date":"2026-10-09","shift":"1","minutes":55.6,"notes":"Ajuste de dados","demo":true,"createdAt":1791504000000},{"lineId":"cardano","fromId":"ca3","toId":"ca1","date":"2026-10-09","shift":"1","minutes":66.6,"notes":"","demo":true,"createdAt":1791504001000},{"lineId":"cardano","fromId":"ca1","toId":"ca3","date":"2026-10-10","shift":"1","minutes":44.1,"notes":"","demo":true,"createdAt":1791590400000},{"lineId":"cardano","fromId":"ca3","toId":"ca2","date":"2026-10-10","shift":"1","minutes":47.2,"notes":"","demo":true,"createdAt":1791590401000},{"lineId":"cardano","fromId":"ca2","toId":"ca3","date":"2026-10-13","shift":"2","minutes":53,"notes":"","demo":true,"createdAt":1791849600000},{"lineId":"cardano","fromId":"ca3","toId":"ca0","date":"2026-10-14","shift":"2","minutes":87,"notes":"Cambio de mordazas tardado","demo":true,"createdAt":1791936000000},{"lineId":"cardano","fromId":"ca0","toId":"ca3","date":"2026-10-14","shift":"2","minutes":75.5,"notes":"","demo":true,"createdAt":1791936001000},{"lineId":"cardano","fromId":"ca3","toId":"ca1","date":"2026-10-15","shift":"3","minutes":56.5,"notes":"","demo":true,"createdAt":1792022400000},{"lineId":"cardano","fromId":"ca1","toId":"ca2","date":"2026-10-18","shift":"3","minutes":39.8,"notes":"","demo":true,"createdAt":1792281600000},{"lineId":"cardano","fromId":"ca2","toId":"ca0","date":"2026-10-20","shift":"3","minutes":62.8,"notes":"","demo":true,"createdAt":1792454400000},{"lineId":"cardano","fromId":"ca0","toId":"ca3","date":"2026-10-20","shift":"1","minutes":82,"notes":"","demo":true,"createdAt":1792454401000},{"lineId":"cardano","fromId":"ca3","toId":"ca1","date":"2026-10-23","shift":"3","minutes":66.8,"notes":"","demo":true,"createdAt":1792713600000},{"lineId":"cardano","fromId":"ca1","toId":"ca0","date":"2026-10-24","shift":"2","minutes":34.4,"notes":"","demo":true,"createdAt":1792800000000},{"lineId":"cardano","fromId":"ca0","toId":"ca2","date":"2026-10-24","shift":"1","minutes":42.2,"notes":"","demo":true,"createdAt":1792800001000},{"lineId":"cardano","fromId":"ca2","toId":"ca3","date":"2026-10-25","shift":"1","minutes":53.9,"notes":"","demo":true,"createdAt":1792886400000},{"lineId":"cardano","fromId":"ca3","toId":"ca0","date":"2026-10-25","shift":"2","minutes":86.4,"notes":"Falta de montacargas","demo":true,"createdAt":1792886401000},{"lineId":"cardano","fromId":"ca0","toId":"ca1","date":"2026-10-27","shift":"2","minutes":46.1,"notes":"","demo":true,"createdAt":1793059200000},{"lineId":"cardano","fromId":"ca1","toId":"ca2","date":"2026-10-28","shift":"2","minutes":45.2,"notes":"","demo":true,"createdAt":1793145600000},{"lineId":"cardano","fromId":"ca2","toId":"ca0","date":"2026-10-28","shift":"1","minutes":49.4,"notes":"","demo":true,"createdAt":1793145601000},{"lineId":"cardano","fromId":"ca0","toId":"ca3","date":"2026-10-29","shift":"1","minutes":70.6,"notes":"","demo":true,"createdAt":1793232000000},{"lineId":"cardano","fromId":"ca3","toId":"ca0","date":"2026-10-30","shift":"3","minutes":74.1,"notes":"","demo":true,"createdAt":1793318400000},{"lineId":"cardano","fromId":"ca0","toId":"ca1","date":"2026-10-30","shift":"1","minutes":38.7,"notes":"","demo":true,"createdAt":1793318401000},{"lineId":"cardano","fromId":"ca1","toId":"ca0","date":"2026-10-31","shift":"1","minutes":43.5,"notes":"","demo":true,"createdAt":1793404800000},{"lineId":"cardano","fromId":"ca0","toId":"ca3","date":"2026-11-01","shift":"3","minutes":73.2,"notes":"","demo":true,"createdAt":1793491200000},{"lineId":"cardano","fromId":"ca3","toId":"ca0","date":"2026-11-01","shift":"3","minutes":67.1,"notes":"","demo":true,"createdAt":1793491201000},{"lineId":"cardano","fromId":"ca0","toId":"ca1","date":"2026-11-02","shift":"1","minutes":36.7,"notes":"","demo":true,"createdAt":1793577600000},{"lineId":"cardano","fromId":"ca1","toId":"ca0","date":"2026-11-03","shift":"2","minutes":37,"notes":"","demo":true,"createdAt":1793664000000},{"lineId":"cardano","fromId":"ca0","toId":"ca2","date":"2026-11-06","shift":"1","minutes":53.7,"notes":"","demo":true,"createdAt":1793923200000},{"lineId":"cardano","fromId":"ca2","toId":"ca1","date":"2026-11-06","shift":"2","minutes":46.3,"notes":"","demo":true,"createdAt":1793923201000},{"lineId":"cardano","fromId":"ca1","toId":"ca2","date":"2026-11-07","shift":"3","minutes":49.1,"notes":"","demo":true,"createdAt":1794009600000},{"lineId":"cardano","fromId":"ca2","toId":"ca3","date":"2026-11-08","shift":"3","minutes":54.2,"notes":"Ajuste de dados","demo":true,"createdAt":1794096000000},{"lineId":"cardano","fromId":"ca3","toId":"ca2","date":"2026-11-09","shift":"2","minutes":46.6,"notes":"","demo":true,"createdAt":1794182400000},{"lineId":"cardano","fromId":"ca2","toId":"ca3","date":"2026-11-09","shift":"2","minutes":44.5,"notes":"","demo":true,"createdAt":1794182401000},{"lineId":"cardano","fromId":"ca3","toId":"ca2","date":"2026-11-10","shift":"2","minutes":48.4,"notes":"","demo":true,"createdAt":1794268800000},{"lineId":"cardano","fromId":"ca2","toId":"ca0","date":"2026-11-10","shift":"3","minutes":50.3,"notes":"","demo":true,"createdAt":1794268801000},{"lineId":"cardano","fromId":"ca0","toId":"ca2","date":"2026-11-11","shift":"1","minutes":54.2,"notes":"","demo":true,"createdAt":1794355200000},{"lineId":"cardano","fromId":"ca2","toId":"ca3","date":"2026-11-12","shift":"3","minutes":55.7,"notes":"Cambio de mordazas tardado","demo":true,"createdAt":1794441600000},{"lineId":"cardano","fromId":"ca3","toId":"ca0","date":"2026-11-12","shift":"2","minutes":77.2,"notes":"","demo":true,"createdAt":1794441601000},{"lineId":"cardano","fromId":"ca0","toId":"ca1","date":"2026-11-13","shift":"1","minutes":35.7,"notes":"","demo":true,"createdAt":1794528000000},{"lineId":"cardano","fromId":"ca1","toId":"ca2","date":"2026-11-14","shift":"2","minutes":35.7,"notes":"","demo":true,"createdAt":1794614400000},{"lineId":"cardano","fromId":"ca2","toId":"ca3","date":"2026-11-15","shift":"2","minutes":41.8,"notes":"","demo":true,"createdAt":1794700800000},{"lineId":"cardano","fromId":"ca3","toId":"ca2","date":"2026-11-15","shift":"1","minutes":47,"notes":"","demo":true,"createdAt":1794700801000}]}</script>
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => Math.random().toString(36).slice(2, 9);
+const fmt = (v, d = 1) => (v == null || isNaN(v)) ? '—' : Number(v).toLocaleString('es-MX', {minimumFractionDigits: 0, maximumFractionDigits: d});
+const keyOf = (a, b) => a + '__' + b;
+const todayStr = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); };
+
+// ---------- State ----------
+let cfg = { lines: [], std: {} };
+let recs = [];
+let ui = { line: 'all', period: 30, mode: 'std' };
+try { const s = JSON.parse(localStorage.getItem('smed-ui') || 'null'); if (s) ui = Object.assign(ui, s); } catch (e) {}
+const saveUi = () => { try { localStorage.setItem('smed-ui', JSON.stringify(ui)); } catch (e) {} };
+let canWrite = true;   // puede registrar cambios (Colaborador o más)
+let isAdmin = true;    // puede cambiar configuración, importar plantilla y borrar (Editor / Propietario)
+let myId = null, userNS = null;
+const names = {};
+let store = null; // {saveCfg, addRec, delRec}
+
+// ---------- Storage ----------
+function setSync(state, text) {
+  $('#syncDot').className = 'dot' + (state === 'on' ? ' on' : state === 'err' ? ' err' : '');
+  $('#syncText').textContent = text;
+}
+function localStore() {
+  const K = 'smed-local';
+  let loaded = false;
+  try { const s = JSON.parse(localStorage.getItem(K) || 'null'); if (s) { cfg = s.cfg || cfg; recs = s.recs || []; loaded = true; } } catch (e) {}
+  if (!loaded) { const d = JSON.parse(document.getElementById('demoData').textContent); cfg = d.cfg; recs = d.recs.map((r, i) => Object.assign({ id: 'demo' + i }, r)); }
+  const persist = () => { try { localStorage.setItem(K, JSON.stringify({ cfg, recs })); } catch (e) {} };
+  setSync('on', 'Datos guardados en este navegador');
+  return {
+    saveCfg: async c => { cfg = c; persist(); render(); },
+    addRec: async r => { recs.push(Object.assign({ id: uid() }, r)); persist(); render(); },
+    delRec: async id => { recs = recs.filter(r => r.id !== id); persist(); render(); },
+    bulk: async (adds, dels) => { const ds = new Set(dels); recs = recs.filter(r => !ds.has(r.id)).concat(adds.map(r => Object.assign({ id: uid() }, r))); persist(); render(); },
+  };
+}
+async function init() {
+  let db = null, user = null;
+  try { if (window.claude && window.claude.use) { [db, user] = await Promise.all([window.claude.use('db'), window.claude.use('user')]); } } catch (e) { db = null; }
+  const hosted = !!(window.claude && window.claude.use);
+  if (!db && hosted) { LAND.show(`<div class="stack"><div class="lmsg">Para entrar necesitas iniciar sesión en <b>claude.ai</b> con la cuenta con la que te compartieron este tablero.</div><div class="lmsg">Si ya iniciaste sesión, pide al responsable que te comparta el tablero.</div></div>`); return; }
+  if (!db) { store = localStore(); render(); localLogin(); return; }
+  userNS = user;
+  if (user) {
+    try { const w = await user.can('data.write'); if (w === false) canWrite = false; } catch (e) {}
+    try {
+      const me = await user.me(); myId = me.id; isAdmin = !!(me.canEdit || me.isOwner);
+      if (!myId && !isAdmin) canWrite = false;
+      $('#whoChip').hidden = false; $('#whoAv').src = me.avatarUrl; $('#whoName').textContent = me.name || 'Usuario';
+      const role = isAdmin ? (me.isOwner ? 'Propietario' : 'Administrador') : canWrite ? 'Capturista' : 'Solo lectura';
+      $('#whoRole').textContent = role; $('#whoRole').classList.toggle('ro', !canWrite);
+    } catch (e) {}
+  } else { isAdmin = false; canWrite = false; }
+  const note = $('#roleNote');
+  if (user) cloudLanding(user); else LAND.enter();
+  if (!canWrite) { note.textContent = 'Tienes acceso de solo lectura. Para registrar cambios pide al responsable del tablero que te comparta con permiso de Colaborador.'; note.classList.add('show'); }
+  else if (!isAdmin) { note.textContent = 'Entraste como Capturista: puedes registrar cambios e importar registros. La configuración, los estándares y el borrado de registros los maneja el administrador.'; note.classList.add('show'); }
+  let gotCfg = false, gotRecs = false;
+  const timer = setTimeout(() => { if (!gotCfg || !gotRecs) setSync('err', 'No se pudo conectar aún; los datos pueden estar desactualizados'); }, 10000);
+  const done = () => { if (gotCfg && gotRecs) { clearTimeout(timer); setSync('on', 'Sincronizado · datos compartidos'); } };
+  const cfgRef = db.doc('config/main');
+  const col = db.collection('changeovers');
+  cfgRef.onSnapshot(s => {
+    if (s.exists) { const d = JSON.parse(JSON.stringify(s.data())); cfg = Object.assign({}, d, { lines: d.lines || [], std: d.std || {} }); }
+    if (!s.metadata.fromCache) { gotCfg = true; done(); }
+    render();
+  }, e => { clearTimeout(timer); setSync('err', 'Error de conexión'); });
+  col.onSnapshot(s => {
+    recs = s.docs.map(d => Object.assign({ id: d.id }, d.data()));
+    if (!s.metadata.fromCache) { gotRecs = true; done(); }
+    render();
+  }, e => { clearTimeout(timer); setSync('err', 'Error de conexión'); });
+  const guard = async fn => {
+    try { await fn(); }
+    catch (e) {
+      if (e && e.code === 'invalid_argument') { toast('No tienes permiso para hacer este cambio'); }
+      else if (e && e.code === 'quota_exceeded') toast('Se llenó el espacio de registros. Elimina registros antiguos.');
+      else toast('No se pudo guardar. Intenta de nuevo.');
+      throw e;
+    }
+  };
+  store = {
+    saveCfg: c => guard(() => cfgRef.set(c)),
+    addRec: r => guard(() => col.add(r)),
+    delRec: id => guard(() => col.doc(id).delete()),
+    bulk: async (adds, dels, prog) => {
+      const total = adds.length + dels.length; let done = 0;
+      const run = async fn => { for (let a = 0; ; a++) { try { return await fn(); } catch (e) { if (e && (e.code === 'resource_exhausted' || e.code === 'unavailable') && a < 8) { await new Promise(r => setTimeout(r, 700 * (a + 1))); continue; } if (e && e.code === 'invalid_argument') { canWrite = false; render(); } throw new Error(e && e.code === 'quota_exceeded' ? 'se llenó el espacio de registros' : (e && e.code === 'invalid_argument' ? 'sin permiso para editar' : 'error de conexión')); } } };
+      for (const id of dels) { await run(() => col.doc(id).delete()); prog && prog(++done, total); }
+      for (const r of adds) { await run(() => col.doc().set(r)); prog && prog(++done, total); }
+    },
+  };
+  render();
+}
+
+// ---------- Helpers ----------
+const lineById = id => cfg.lines.find(l => l.id === id);
+const modelName = (line, mid) => { const m = line && line.models.find(x => x.id === mid); return m ? m.name : '?'; };
+const stdOf = (lineId, a, b) => { const v = cfg.std[lineId] && cfg.std[lineId][keyOf(a, b)]; return (v == null || v === '') ? null : Number(v); };
+function filtered() {
+  let cutoff = null;
+  if (ui.period > 0) { const d = new Date(); d.setDate(d.getDate() - ui.period + 1); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); cutoff = d.toISOString().slice(0, 10); }
+  return recs.filter(r => lineById(r.lineId) && (ui.line === 'all' || r.lineId === ui.line) && (!cutoff || r.date >= cutoff))
+    .map(r => Object.assign({}, r, { std: stdOf(r.lineId, r.fromId, r.toId), minutes: Number(r.minutes) }));
+}
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2600); }
+
+// Modal
+let modalOk = null;
+function openModal(title, text, bodyHtml, okLabel, onOk) {
+  $('#mTitle').textContent = title; $('#mText').textContent = text || ''; $('#mBody').innerHTML = bodyHtml || '';
+  $('#mOk').textContent = okLabel || 'Guardar'; $('#mCancel').style.display = ''; modalOk = onOk; $('#modalBg').classList.add('open');
+  const f = $('#mBody input'); if (f) setTimeout(() => { f.focus(); f.select(); }, 30);
+}
+const closeModal = () => { $('#modalBg').classList.remove('open'); modalOk = null; };
+$('#mCancel').onclick = closeModal;
+$('#modalBg').addEventListener('click', e => { if (e.target.id === 'modalBg') closeModal(); });
+$('#mOk').onclick = async () => { if (modalOk) { const r = await modalOk(); if (r !== false) closeModal(); } };
+$('#mBody').addEventListener('keydown', e => { if (e.key === 'Enter') $('#mOk').click(); });
+
+// ---------- Colors ----------
+const BLUE = ['#cde2fb','#b7d3f6','#9ec5f4','#86b6ef','#6da7ec','#5598e7','#3987e5','#2a78d6','#256abf','#1c5cab'];
+const DIV_BLUE = ['#cde2fb','#9ec5f4','#6da7ec','#3987e5','#256abf'];
+const DIV_RED = ['#fbd9d8','#f5aeac','#ec7a78','#e34948','#b8302f'];
+function seqColor(v, max) {
+  const t = max > 0 ? Math.min(1, v / max) : 0; const i = Math.min(BLUE.length - 1, Math.floor(t * (BLUE.length - 0.001)));
+  return { bg: BLUE[i], fg: i >= 6 ? '#ffffff' : '#0b0b0b' };
+}
+function devColor(pct) {
+  if (Math.abs(pct) <= 0.05) return { bg: css('--mid'), fg: css('--text') };
+  const a = Math.min(1, (Math.abs(pct) - 0.05) / 0.45); const i = Math.min(4, Math.floor(a * 4.999));
+  return pct < 0 ? { bg: DIV_BLUE[i], fg: i >= 3 ? '#fff' : '#0b0b0b' } : { bg: DIV_RED[i], fg: i >= 3 ? '#fff' : '#0b0b0b' };
+}
+
+// ---------- Render ----------
+let rq = 0;
+function render() { if (rq) return; rq = requestAnimationFrame(() => { rq = 0; renderNow(); }); }
+function renderNow() {
+  if (ui.line !== 'all' && !lineById(ui.line)) ui.line = 'all';
+  renderFilters();
+  const F = filtered();
+  $('#demoBanner').classList.toggle('show', recs.some(r => r.demo) && isAdmin);
+  renderKpis(F);
+  renderMatrices(F);
+  renderCharts(F);
+  renderForm();
+  renderTable(F);
+  renderCfg();
+  renderUsers();
+}
+
+function renderFilters() {
+  const seg = $('#lineSeg');
+  seg.innerHTML = [`<button data-l="all" aria-pressed="${ui.line === 'all'}">Todas</button>`]
+    .concat(cfg.lines.map(l => `<button data-l="${esc(l.id)}" aria-pressed="${ui.line === l.id}">${esc(l.name)}</button>`)).join('');
+  document.querySelectorAll('#periodSeg button').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.p === ui.period)));
+  document.querySelectorAll('#mxMode button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.m === ui.mode)));
+}
+$('#lineSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; ui.line = b.dataset.l; saveUi(); render(); });
+$('#periodSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; ui.period = +b.dataset.p; saveUi(); render(); });
+$('#mxMode').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; ui.mode = b.dataset.m; saveUi(); render(); });
+
+function renderKpis(F) {
+  const withStd = F.filter(r => r.std != null);
+  const avgReal = F.length ? F.reduce((s, r) => s + r.minutes, 0) / F.length : null;
+  const avgStd = withStd.length ? withStd.reduce((s, r) => s + r.std, 0) / withStd.length : null;
+  const avgRealS = withStd.length ? withStd.reduce((s, r) => s + r.minutes, 0) / withStd.length : null;
+  const ok = withStd.filter(r => r.minutes <= r.std).length;
+  const comp = withStd.length ? ok / withStd.length : null;
+  const lost = withStd.reduce((s, r) => s + Math.max(0, r.minutes - r.std), 0);
+  const gap = (avgRealS != null && avgStd) ? (avgRealS - avgStd) / avgStd : null;
+  const total = F.reduce((s, r) => s + r.minutes, 0);
+  const badge = (good, txt) => `<span class="badge ${good ? 'good' : 'bad'}">${good ? '✓' : '▲'} ${txt}</span>`;
+  $('#kpis').innerHTML = `
+    <div class="kpi"><div class="k">Cambios registrados</div><div class="v num">${F.length}</div><div class="s">${fmt(total / 60, 1)} h totales de cambio</div></div>
+    <div class="kpi"><div class="k">Promedio real</div><div class="v num">${fmt(avgReal)}<small>min</small></div><div class="s">${gap == null ? 'sin estándar para comparar' : badge(gap <= 0, (gap > 0 ? '+' : '') + fmt(gap * 100, 0) + '% vs estándar')}</div></div>
+    <div class="kpi"><div class="k">Promedio estándar</div><div class="v num">${fmt(avgStd)}<small>min</small></div><div class="s">${withStd.length} de ${F.length} cambios con estándar</div></div>
+    <div class="kpi"><div class="k">Cumplimiento (real ≤ estándar)</div><div class="v num">${comp == null ? '—' : fmt(comp * 100, 0) + '<small>%</small>'}</div><div class="s">${comp == null ? '' : badge(comp >= 0.85, comp >= 0.85 ? 'En meta (≥85%)' : 'Bajo meta (85%)')}</div></div>
+    <div class="kpi"><div class="k">Minutos perdidos vs estándar</div><div class="v num">${fmt(lost, 0)}<small>min</small></div><div class="s">${withStd.length - ok} cambios excedidos</div></div>`;
+}
+
+function renderMatrices(F) {
+  const lines = ui.line === 'all' ? cfg.lines : cfg.lines.filter(l => l.id === ui.line);
+  const subs = { std: 'Tiempo estándar en minutos. Toca una celda para capturarlo o editarlo.', real: 'Promedio real en minutos del periodo · n = número de cambios', dev: 'Real promedio − estándar (minutos y %). Azul = más rápido que el estándar · Rojo = más lento' };
+  $('#mxSub').textContent = 'Filas: modelo que sale (De) · Columnas: modelo que entra (A) · ' + subs[ui.mode];
+  if (!lines.length) { $('#matrices').innerHTML = '<div class="empty-state">Agrega una línea y sus modelos en «Configuración» para construir la matriz.</div>'; $('#mxLegend').innerHTML = ''; return; }
+  let html = '';
+  for (const L of lines) {
+    const ms = L.models;
+    const agg = {};
+    F.filter(r => r.lineId === L.id).forEach(r => { const k = keyOf(r.fromId, r.toId); (agg[k] = agg[k] || { s: 0, n: 0 }); agg[k].s += r.minutes; agg[k].n++; });
+    let max = 0;
+    ms.forEach(a => ms.forEach(b => { const k = keyOf(a.id, b.id); const v = ui.mode === 'std' ? stdOf(L.id, a.id, b.id) : (agg[k] ? agg[k].s / agg[k].n : null); if (v != null && v > max) max = v; }));
+    const stdVals = ms.flatMap(a => ms.map(b => stdOf(L.id, a.id, b.id))).filter(v => v != null);
+    const cnt = F.filter(r => r.lineId === L.id).length;
+    html += `<div class="mx-line"><div class="mx-title"><b>${esc(L.name)}</b><span>${ms.length} modelos · ${stdVals.length}/${ms.length * ms.length} estándares capturados · ${cnt} cambios en periodo</span></div>`;
+    if (ms.length < 1) { html += '<div class="empty-state">Esta línea aún no tiene modelos. Agrégalos en Configuración o con el Excel.</div></div>'; continue; }
+    html += `<div class="mx-wrap"><table class="mx"><thead><tr><th class="corner">De ↓<br>A →</th>${ms.map(m => `<th>${esc(m.name)}</th>`).join('')}</tr></thead><tbody>`;
+    for (const a of ms) {
+      html += `<tr><th class="rowh">${esc(a.name)}</th>`;
+      for (const b of ms) {
+        const k = keyOf(a.id, b.id); const sv = stdOf(L.id, a.id, b.id); const g = agg[k];
+        const rv = g ? g.s / g.n : null;
+        const tip = `${a.name} → ${b.name}${a.id === b.id ? ' (cambio de No. de parte dentro del modelo)' : ''} · Estándar: ${sv == null ? 'sin capturar' : fmt(sv) + ' min'} · Real prom.: ${rv == null ? 'sin registros' : fmt(rv) + ' min (n=' + g.n + ')'}`;
+        const clickable = ui.mode === 'std' && isAdmin;
+        const same = a.id === b.id ? ' same' : '';
+        const attrs = `title="${esc(tip)}" data-line="${esc(L.id)}" data-a="${esc(a.id)}" data-b="${esc(b.id)}"`;
+        if (ui.mode === 'std') {
+          if (sv == null) html += `<td class="empty${same}${clickable ? ' click' : ''}" ${attrs}>${clickable ? '+' : '·'}</td>`;
+          else { const c = seqColor(sv, max); html += `<td class="${same}${clickable ? ' click' : ''}" style="background:${c.bg};color:${c.fg}" ${attrs}><span class="m">${fmt(sv)}</span></td>`; }
+        } else if (ui.mode === 'real') {
+          if (rv == null) html += `<td class="empty${same}" ${attrs}>·</td>`;
+          else { const c = seqColor(rv, max); html += `<td class="${same}" style="background:${c.bg};color:${c.fg}" ${attrs}><span class="m">${fmt(rv)}</span><span class="n">n=${g.n}</span></td>`; }
+        } else {
+          if (rv == null || sv == null || sv === 0) html += `<td class="empty${same}" ${attrs}>${rv == null ? '·' : 's/est.'}</td>`;
+          else { const d = rv - sv, p = d / sv; const c = devColor(p); html += `<td class="${same}" style="background:${c.bg};color:${c.fg}" ${attrs}><span class="m">${d > 0 ? '+' : ''}${fmt(d)}</span><span class="n">${p > 0 ? '+' : ''}${fmt(p * 100, 0)}%</span></td>`; }
+        }
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table></div></div>';
+  }
+  $('#matrices').innerHTML = html;
+  const ramp = arr => `<span class="ramp">${arr.map(c => `<i style="background:${c}"></i>`).join('')}</span>`;
+  if (ui.mode === 'dev') $('#mxLegend').innerHTML = `<span class="lg">Más rápido ${ramp(DIV_BLUE.slice().reverse())}</span><span class="lg"><span class="sw" style="background:var(--mid);border:1px solid var(--border-strong)"></span>±5% del estándar</span><span class="lg">${ramp(DIV_RED)} Más lento</span><span class="lg"><span class="sw" style="outline:2px dashed var(--muted);outline-offset:-3px;border:1px solid var(--border)"></span>Diagonal: cambio de No. de parte dentro del mismo modelo</span>`;
+  else $('#mxLegend').innerHTML = `<span class="lg">Menos minutos ${ramp(BLUE)} Más minutos</span><span class="lg"><span class="sw" style="border:1px dashed var(--border-strong)"></span>${ui.mode === 'std' ? 'Sin estándar' : 'Sin registros'}</span><span class="lg"><span class="sw" style="outline:2px dashed var(--muted);outline-offset:-3px;border:1px solid var(--border)"></span>Diagonal: cambio de No. de parte dentro del mismo modelo</span>`;
+}
+$('#matrices').addEventListener('click', e => {
+  const td = e.target.closest('td.click'); if (!td || !store) return;
+  const L = lineById(td.dataset.line); if (!L) return;
+  const a = td.dataset.a, b = td.dataset.b; const cur = stdOf(L.id, a, b);
+  openModal(`Estándar: ${modelName(L, a)} → ${modelName(L, b)}`, `${L.name} · minutos estándar del cambio. Déjalo vacío para quitarlo.`,
+    `<label class="f">Minutos estándar<input type="number" id="mStd" min="0" step="0.1" inputmode="decimal" value="${cur == null ? '' : cur}"></label>
+     <label class="f" style="margin-top:10px;flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="mSym"> Aplicar también a ${esc(modelName(L, b))} → ${esc(modelName(L, a))}</label>`,
+    'Guardar', async () => {
+      const raw = $('#mStd').value.trim(); const v = raw === '' ? null : Number(raw);
+      if (v != null && (isNaN(v) || v < 0)) { toast('Valor inválido'); return false; }
+      const c = JSON.parse(JSON.stringify(cfg)); c.std[L.id] = c.std[L.id] || {};
+      const set = k => { if (v == null) delete c.std[L.id][k]; else c.std[L.id][k] = v; };
+      set(keyOf(a, b)); if ($('#mSym').checked) set(keyOf(b, a));
+      try { await store.saveCfg(c); toast('Estándar guardado'); } catch (e) {}
+    });
+});
+
+// ---------- Charts ----------
+const charts = {};
+function baseOpts(extra) {
+  const tc = css('--text-2'), gc = css('--border');
+  return Object.assign({
+    responsive: true, maintainAspectRatio: false, animation: { duration: 250 },
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { position: 'top', align: 'start', labels: { color: tc, boxWidth: 12, boxHeight: 12, useBorderRadius: true, borderRadius: 3, font: { family: 'IBM Plex Sans', size: 12 } } },
+      tooltip: { backgroundColor: css('--text'), titleColor: css('--surface'), bodyColor: css('--surface'), padding: 10, cornerRadius: 6, titleFont: { family: 'IBM Plex Sans', weight: '600' }, bodyFont: { family: 'IBM Plex Mono' },
+        callbacks: { label: c => ` ${c.dataset.label}: ${fmt(c.parsed[c.chart.options.indexAxis === 'y' ? 'x' : 'y'])} min` } }
+    },
+    scales: {
+      x: { grid: { color: gc, drawTicks: false }, border: { display: false }, ticks: { color: tc, font: { family: 'IBM Plex Sans', size: 11 }, padding: 6 } },
+      y: { grid: { color: gc, drawTicks: false }, border: { display: false }, ticks: { color: tc, font: { family: 'IBM Plex Sans', size: 11 }, padding: 6 }, beginAtZero: true }
+    }
+  }, extra || {});
+}
+function drawChart(id, emptyId, has, cfgFn) {
+  const cv = document.getElementById(id); const box = cv.parentElement;
+  box.hidden = !has; document.getElementById(emptyId).hidden = has;
+  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+  if (!has || typeof Chart === 'undefined') return;
+  charts[id] = new Chart(cv, cfgFn());
+}
+const barDs = (label, data, color) => ({ label, data, backgroundColor: color, borderRadius: 4, borderSkipped: 'start', maxBarThickness: 18, categoryPercentage: 0.7, barPercentage: 0.9, borderColor: css('--surface'), borderWidth: 0 });
+
+function renderCharts(F) {
+  const real = css('--real'), std = css('--std');
+  // 1. Transitions
+  const g = {};
+  F.forEach(r => { const k = r.lineId + '|' + keyOf(r.fromId, r.toId); (g[k] = g[k] || { r, s: 0, n: 0 }); g[k].s += r.minutes; g[k].n++; });
+  const top = Object.values(g).sort((a, b) => b.n - a.n).slice(0, 10);
+  const lbl = x => { const L = lineById(x.r.lineId); return (ui.line === 'all' ? L.name + ' · ' : '') + modelName(L, x.r.fromId) + ' → ' + modelName(L, x.r.toId); };
+  drawChart('cTrans', 'cTransEmpty', top.length > 0, () => ({
+    type: 'bar',
+    data: { labels: top.map(lbl), datasets: [barDs('Estándar', top.map(x => x.r.std), std), barDs('Real promedio', top.map(x => x.s / x.n), real)] },
+    options: baseOpts({ indexAxis: 'y', scales: Object.assign(baseOpts().scales, { y: Object.assign(baseOpts().scales.y, { grid: { display: false } }), x: Object.assign(baseOpts().scales.x, { beginAtZero: true, title: { display: true, text: 'minutos', color: css('--muted'), font: { size: 11 } } }) }),
+      plugins: Object.assign(baseOpts().plugins, { tooltip: Object.assign(baseOpts().plugins.tooltip, { callbacks: { label: c => ` ${c.dataset.label}: ${c.parsed.x == null ? 'sin estándar' : fmt(c.parsed.x) + ' min'}`, afterBody: items => { const x = top[items[0].dataIndex]; return `n = ${x.n} cambios`; } } }) }) })
+  }));
+  // 2. Trend
+  const days = {};
+  F.forEach(r => { (days[r.date] = days[r.date] || { s: 0, n: 0, ss: 0, sn: 0 }); const d = days[r.date]; d.s += r.minutes; d.n++; if (r.std != null) { d.ss += r.std; d.sn++; } });
+  const dk = Object.keys(days).sort();
+  const dl = d => { const [y, m, dd] = d.split('-'); return dd + '/' + m; };
+  drawChart('cTrend', 'cTrendEmpty', dk.length > 0, () => ({
+    type: 'line',
+    data: { labels: dk.map(dl), datasets: [
+      { label: 'Real promedio', data: dk.map(d => days[d].s / days[d].n), borderColor: real, backgroundColor: real, borderWidth: 2, pointRadius: dk.length > 40 ? 0 : 3, pointHoverRadius: 5, tension: 0.25, pointBorderColor: css('--surface'), pointBorderWidth: 2 },
+      { label: 'Estándar', data: dk.map(d => days[d].sn ? days[d].ss / days[d].sn : null), borderColor: std, backgroundColor: std, borderWidth: 2, borderDash: [6, 4], pointRadius: 0, pointHoverRadius: 4, tension: 0.25, spanGaps: true }
+    ] },
+    options: baseOpts({ plugins: Object.assign(baseOpts().plugins, { tooltip: Object.assign(baseOpts().plugins.tooltip, { callbacks: { label: c => ` ${c.dataset.label}: ${fmt(c.parsed.y)} min`, afterBody: it => `n = ${days[dk[it[0].dataIndex]].n} cambios` } }) }) })
+  }));
+  // 3. Group (by line or by shift)
+  const byLine = ui.line === 'all';
+  $('#cGroupTitle').textContent = byLine ? 'Real vs estándar por línea' : 'Real vs estándar por turno';
+  const gg = {};
+  F.forEach(r => { const k = byLine ? r.lineId : 'T' + (r.shift || '?'); (gg[k] = gg[k] || { s: 0, n: 0, ss: 0, sn: 0, ok: 0 }); const o = gg[k]; o.s += r.minutes; o.n++; if (r.std != null) { o.ss += r.std; o.sn++; if (r.minutes <= r.std) o.ok++; } });
+  const gk = byLine ? cfg.lines.map(l => l.id).filter(k => gg[k]) : Object.keys(gg).sort();
+  drawChart('cGroup', 'cGroupEmpty', gk.length > 0, () => ({
+    type: 'bar',
+    data: { labels: gk.map(k => byLine ? lineById(k).name : 'Turno ' + k.slice(1)), datasets: [barDs('Estándar', gk.map(k => gg[k].sn ? gg[k].ss / gg[k].sn : null), std), barDs('Real promedio', gk.map(k => gg[k].s / gg[k].n), real)].map(d => Object.assign(d, { maxBarThickness: 36 })) },
+    options: baseOpts({ plugins: Object.assign(baseOpts().plugins, { tooltip: Object.assign(baseOpts().plugins.tooltip, { callbacks: { label: c => ` ${c.dataset.label}: ${fmt(c.parsed.y)} min`, afterBody: it => { const o = gg[gk[it[0].dataIndex]]; return `n = ${o.n} · cumplimiento ${o.sn ? fmt(o.ok / o.sn * 100, 0) + '%' : '—'}`; } } }) }) })
+  }));
+  // 4. Lost minutes by transition (pareto)
+  const lost = {};
+  F.forEach(r => { if (r.std == null) return; const ex = r.minutes - r.std; if (ex <= 0) return; const k = r.lineId + '|' + keyOf(r.fromId, r.toId); (lost[k] = lost[k] || { r, v: 0, n: 0 }); lost[k].v += ex; lost[k].n++; });
+  const lt = Object.values(lost).sort((a, b) => b.v - a.v).slice(0, 8);
+  drawChart('cLost', 'cLostEmpty', lt.length > 0, () => ({
+    type: 'bar',
+    data: { labels: lt.map(lbl), datasets: [Object.assign(barDs('Minutos perdidos', lt.map(x => x.v), real), { maxBarThickness: 22 })] },
+    options: baseOpts({ indexAxis: 'y', plugins: Object.assign(baseOpts().plugins, { legend: { display: false }, tooltip: Object.assign(baseOpts().plugins.tooltip, { callbacks: { label: c => ` ${fmt(c.parsed.x)} min perdidos`, afterBody: it => `${lt[it[0].dataIndex].n} cambios excedidos` } }) }),
+      scales: Object.assign(baseOpts().scales, { y: Object.assign(baseOpts().scales.y, { grid: { display: false } }) }) })
+  }));
+}
+
+// ---------- Form ----------
+let formLine = null;
+function renderForm() {
+  $('#regCard').style.display = canWrite ? '' : 'none';
+  $('#xlImportBtn').style.display = isAdmin ? '' : 'none';
+  $('#bulkBtn').style.display = canWrite ? '' : 'none';
+  const fl = $('#fLine');
+  const want = formLine || (ui.line !== 'all' ? ui.line : (cfg.lines[0] && cfg.lines[0].id));
+  fl.innerHTML = cfg.lines.map(l => `<option value="${esc(l.id)}">${esc(l.name)}</option>`).join('');
+  if (want && lineById(want)) fl.value = want;
+  fillModels();
+  if (!$('#fDate').value) $('#fDate').value = todayStr();
+}
+function fillModels() {
+  const L = lineById($('#fLine').value);
+  const prevF = $('#fFrom').value, prevT = $('#fTo').value;
+  const opts = L ? L.models.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('') : '';
+  $('#fFrom').innerHTML = opts; $('#fTo').innerHTML = opts;
+  if (L && L.models.find(m => m.id === prevF)) $('#fFrom').value = prevF;
+  if (L && L.models.find(m => m.id === prevT)) $('#fTo').value = prevT;
+  else if (L && L.models.length > 1 && $('#fTo').value === $('#fFrom').value) $('#fTo').selectedIndex = 1;
+  updStd();
+}
+function updStd() {
+  const l = $('#fLine').value, a = $('#fFrom').value, b = $('#fTo').value;
+  const p = $('#fStd');
+  if (!l || !a || !b) { p.textContent = 'Estándar: —'; return; }
+  const s = stdOf(l, a, b); const m = parseFloat($('#fMin').value);
+  let extra = '';
+  if (s != null && !isNaN(m)) { const d = m - s; extra = ` · <span class="badge ${d <= 0 ? 'good' : 'bad'}">${d <= 0 ? '✓' : '▲'} ${d > 0 ? '+' : ''}${fmt(d)} min</span>`; }
+  p.innerHTML = `Estándar: <b class="num">${s == null ? 'sin capturar' : fmt(s) + ' min'}</b>${extra}`;
+}
+$('#fLine').addEventListener('change', () => { formLine = $('#fLine').value; fillModels(); });
+$('#fFrom').addEventListener('change', updStd); $('#fTo').addEventListener('change', updStd); $('#fMin').addEventListener('input', updStd);
+$('#regForm').addEventListener('submit', async e => {
+  e.preventDefault(); if (!store) return;
+  const r = { lineId: $('#fLine').value, fromId: $('#fFrom').value, toId: $('#fTo').value, date: $('#fDate').value, shift: $('#fShift').value, minutes: parseFloat($('#fMin').value), notes: $('#fNotes').value.trim(), createdAt: Date.now() };
+  if (myId) r.by = myId;
+  if (!r.lineId || !r.fromId || !r.toId) { toast('Completa línea y modelos'); return; }
+  if (isNaN(r.minutes) || r.minutes < 0) { toast('Minutos inválidos'); return; }
+  const s = stdOf(r.lineId, r.fromId, r.toId); if (s != null) r.stdAtCapture = s;
+  $('#fSubmit').disabled = true;
+  try { await store.addRec(r); $('#fMin').value = ''; $('#fNotes').value = ''; updStd(); toast('Cambio registrado'); } catch (e) {}
+  $('#fSubmit').disabled = false;
+});
+
+// ---------- Table ----------
+const sel = new Set();
+function renderTable(F) {
+  const rows = F.slice().sort((a, b) => (b.date + (b.time || '') + (b.createdAt || 0)).localeCompare(a.date + (a.time || '') + (a.createdAt || 0)));
+  const ids = new Set(recs.map(r => r.id)); [...sel].forEach(id => { if (!ids.has(id)) sel.delete(id); });
+  $('#delAll').style.display = isAdmin && recs.length ? '' : 'none';
+  $('#delSel').hidden = !isAdmin || !sel.size; $('#delSel').textContent = `Borrar seleccionados (${sel.size})`;
+  $('#recSub').textContent = `${rows.length} cambios en el filtro${rows.length > 100 ? ' · mostrando los 100 más recientes' : ''}`;
+  if (!rows.length) { $('#recTbl').innerHTML = '<tr><td class="empty-state">Sin registros en este filtro.</td></tr>'; return; }
+  const showBy = recs.some(r => r.by);
+  const vis = rows.slice(0, 100); const allOn = vis.length && vis.every(r => sel.has(r.id));
+  $('#recTbl').innerHTML = `<thead><tr>${isAdmin ? `<th><input type="checkbox" id="selAll" aria-label="Seleccionar todos los visibles" ${allOn ? 'checked' : ''}></th>` : ''}<th>Fecha</th><th>Línea</th><th>Cambio</th><th>Turno</th><th class="r">Real</th><th class="r">Estándar</th><th class="r">Δ</th><th>Notas</th>${showBy ? '<th>Capturó</th>' : ''}${canWrite ? '<th></th>' : ''}</tr></thead><tbody>` +
+    rows.slice(0, 100).map(r => {
+      const L = lineById(r.lineId); const d = r.std != null ? r.minutes - r.std : null;
+      const [y, m, dd] = (r.date || '').split('-');
+      return `<tr>${isAdmin ? `<td><input type="checkbox" data-sel="${esc(r.id)}" ${sel.has(r.id) ? 'checked' : ''} aria-label="Seleccionar"></td>` : ''}<td class="num">${dd}/${m}/${y}${r.time ? ' <span class="hint">' + esc(r.time) + '</span>' : ''}</td><td>${esc(L.name)}</td><td class="mono">${esc(modelName(L, r.fromId))} → ${esc(modelName(L, r.toId))}</td><td>${esc(r.shift || '')}</td>
+        <td class="r num">${fmt(r.minutes)}</td><td class="r num">${fmt(r.std)}</td>
+        <td class="r">${d == null ? '<span class="hint">—</span>' : `<span class="badge ${d <= 0 ? 'good' : 'bad'}">${d <= 0 ? '✓' : '▲'} <span class="num">${d > 0 ? '+' : ''}${fmt(d)}</span></span>`}</td>
+        <td style="white-space:normal;max-width:260px;color:var(--text-2)">${esc(r.notes || '')}${r.demo ? ' <span class="hint">(ejemplo)</span>' : ''}</td>${showBy ? `<td class="who" data-uid="${esc(r.by || '')}">${r.by ? esc(names[r.by] || '…') : '<span class="hint">—</span>'}</td>` : ''}
+        ${isAdmin ? `<td><button class="x" data-del="${esc(r.id)}" aria-label="Eliminar registro">✕</button></td>` : ''}</tr>`;
+    }).join('') + '</tbody>';
+  resolveNames(vis.map(r => r.by).filter(Boolean));
+}
+async function resolveNames(ids) {
+  if (!userNS) { const us = LOCALU.load(); ids.forEach(id => { const u = us.find(x => x.id === id); names[id] = u ? u.name + (id === myId ? ' (tú)' : '') : 'Usuario eliminado'; }); document.querySelectorAll('#recTbl td.who[data-uid]').forEach(td => { const id = td.dataset.uid; if (id && names[id]) td.textContent = names[id]; }); return; }
+  if (!ids.length) return;
+  try {
+    const ps = await userNS.profiles([...new Set(ids)]);
+    Object.keys(ps).forEach(id => { names[id] = ps[id].isMe ? (ps[id].name || 'Tú') + ' (tú)' : (ps[id].name || 'Otra persona'); });
+    document.querySelectorAll('#recTbl td.who[data-uid]').forEach(td => { const id = td.dataset.uid; if (id && names[id]) td.textContent = names[id]; });
+  } catch (e) {}
+}
+$('#recTbl').addEventListener('change', e => {
+  const t = e.target;
+  if (t.id === 'selAll') { document.querySelectorAll('#recTbl [data-sel]').forEach(c => { c.checked = t.checked; t.checked ? sel.add(c.dataset.sel) : sel.delete(c.dataset.sel); }); }
+  else if (t.dataset.sel) { t.checked ? sel.add(t.dataset.sel) : sel.delete(t.dataset.sel); }
+  else return;
+  $('#delSel').hidden = !sel.size; $('#delSel').textContent = `Borrar seleccionados (${sel.size})`;
+});
+async function deleteMany(ids, label) {
+  if (!ids.length || !store) return;
+  try { await store.bulk([], ids, (d, t) => setSync('', `Borrando… ${d} de ${t}`)); ids.forEach(id => sel.delete(id)); setSync('on', 'Registros borrados'); toast(`${ids.length} ${label} borrados`); }
+  catch (e) { toast('El borrado se detuvo: ' + (e && e.message ? e.message : 'error')); }
+}
+$('#delSel').addEventListener('click', () => {
+  const ids = [...sel];
+  openModal('Borrar registros seleccionados', `Se borrarán ${ids.length} registros. Esta acción no se puede deshacer; si quieres respaldo, usa antes «Exportar a Excel».`, '', `Borrar ${ids.length}`, async () => { closeModal(); await deleteMany(ids, 'registros'); return false; });
+});
+$('#delAll').addEventListener('click', () => {
+  const F = filtered(); const lname = ui.line === 'all' ? 'todas las líneas' : (lineById(ui.line) || {}).name;
+  const per = ui.period ? `últimos ${ui.period} días` : 'todo el periodo';
+  openModal('Borrar registros', 'Elige qué registros borrar. Esta acción no se puede deshacer; si quieres respaldo, usa antes «Exportar a Excel».',
+    `<div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
+      <label style="display:flex;gap:8px"><input type="radio" name="delScope" value="f" checked> <span>Los del filtro actual: <b>${F.length}</b> <span class="hint">(${esc(lname)} · ${per})</span></span></label>
+      <label style="display:flex;gap:8px"><input type="radio" name="delScope" value="a"> <span>Todos los registros del tablero: <b>${recs.length}</b></span></label>
+      <label class="f" style="margin-top:6px">Escribe BORRAR para confirmar<input id="delConfirm" autocomplete="off" placeholder="BORRAR"></label>
+    </div>`, 'Borrar', async () => {
+      if ($('#delConfirm').value.trim().toUpperCase() !== 'BORRAR') { toast('Escribe BORRAR para confirmar'); return false; }
+      const all = document.querySelector('input[name="delScope"]:checked').value === 'a';
+      const ids = (all ? recs : filtered()).map(r => r.id);
+      closeModal(); await deleteMany(ids, 'registros'); return false;
+    });
+  setTimeout(() => $('#delConfirm') && $('#delConfirm').focus(), 50);
+});
+$('#recTbl').addEventListener('click', e => {
+  const b = e.target.closest('[data-del]'); if (!b || !store) return;
+  openModal('Eliminar registro', 'Esta acción no se puede deshacer.', '', 'Eliminar', async () => { try { await store.delRec(b.dataset.del); toast('Registro eliminado'); } catch (e) {} });
+});
+$('#copyCsv').addEventListener('click', async () => {
+  const F = filtered();
+  const lines = [['Fecha', 'Linea', 'De', 'A', 'Turno', 'Real_min', 'Estandar_min', 'Delta_min', 'Notas'].join(',')].concat(F.map(r => {
+    const L = lineById(r.lineId); const q = s => '"' + String(s ?? '').replace(/"/g, '""') + '"';
+    return [r.date, q(L.name), q(modelName(L, r.fromId)), q(modelName(L, r.toId)), r.shift || '', r.minutes, r.std ?? '', r.std != null ? (r.minutes - r.std).toFixed(1) : '', q(r.notes)].join(',');
+  }));
+  try { await navigator.clipboard.writeText(lines.join('\n')); toast(`CSV copiado (${F.length} filas) — pégalo en Excel`); } catch (e) { toast('No se pudo copiar al portapapeles'); }
+});
+$('#clearDemo').addEventListener('click', () => {
+  const demo = recs.filter(r => r.demo);
+  openModal('Eliminar registros de ejemplo', `Se eliminarán ${demo.length} registros marcados como ejemplo. Las líneas, modelos y estándares se conservan para que los ajustes.`, '', 'Eliminar', async () => {
+    for (const r of demo) { try { await store.delRec(r.id); } catch (e) { break; } }
+    toast('Registros de ejemplo eliminados');
+  });
+});
+
+// ---------- Config ----------
+function renderCfg() {
+  $('#addLineForm').style.display = isAdmin ? '' : 'none';
+  if (!cfg.lines.length) { $('#cfgLines').innerHTML = '<div class="hint">Aún no hay líneas.</div>'; return; }
+  $('#cfgLines').innerHTML = cfg.lines.map(L => `
+    <div class="cfg-line">
+      <h3><span>${esc(L.name)}</span>${isAdmin ? `<span style="display:flex;gap:6px"><button class="btn ghost sm" data-ren="${esc(L.id)}">Renombrar</button><button class="btn danger sm" data-dline="${esc(L.id)}">Eliminar</button></span>` : ''}</h3>
+      <div class="chips">${L.models.map(m => `<span class="chip">${esc(m.name)}${isAdmin ? `<button class="x" data-dmodel="${esc(L.id)}|${esc(m.id)}" aria-label="Quitar ${esc(m.name)}">✕</button>` : '&nbsp;&nbsp;'}</span>`).join('') || '<span class="hint">Sin modelos</span>'}</div>
+      ${isAdmin ? `<form class="row" data-addm="${esc(L.id)}"><input placeholder="Nuevo modelo / número de parte" maxlength="30"><button class="btn sm" type="submit">Agregar</button></form>` : ''}
+    </div>`).join('');
+}
+const cloneCfg = () => JSON.parse(JSON.stringify(cfg));
+$('#addLineForm').addEventListener('submit', async e => {
+  e.preventDefault(); const n = $('#newLine').value.trim(); if (!n || !store) return;
+  if (cfg.lines.some(l => l.name.toLowerCase() === n.toLowerCase())) { toast('Esa línea ya existe'); return; }
+  const c = cloneCfg(); c.lines.push({ id: 'l' + uid(), name: n, models: [] });
+  try { await store.saveCfg(c); $('#newLine').value = ''; toast('Línea agregada'); } catch (e) {}
+});
+$('#cfgLines').addEventListener('submit', async e => {
+  e.preventDefault(); const f = e.target.closest('[data-addm]'); if (!f || !store) return;
+  const inp = f.querySelector('input'); const n = inp.value.trim(); if (!n) return;
+  const c = cloneCfg(); const L = c.lines.find(l => l.id === f.dataset.addm);
+  if (L.models.some(m => m.name.toLowerCase() === n.toLowerCase())) { toast('Ese modelo ya existe en la línea'); return; }
+  L.models.push({ id: 'm' + uid(), name: n });
+  try { await store.saveCfg(c); toast('Modelo agregado'); } catch (e) {}
+});
+$('#cfgLines').addEventListener('click', e => {
+  const dm = e.target.closest('[data-dmodel]'), dl = e.target.closest('[data-dline]'), rn = e.target.closest('[data-ren]');
+  if (dm) {
+    const [lid, mid] = dm.dataset.dmodel.split('|'); const L = lineById(lid);
+    openModal('Quitar modelo', `Se quitará ${modelName(L, mid)} de ${L.name} junto con sus estándares. Los registros de cambios con este modelo dejarán de mostrarse en la matriz.`, '', 'Quitar', async () => {
+      const c = cloneCfg(); const CL = c.lines.find(l => l.id === lid); CL.models = CL.models.filter(m => m.id !== mid);
+      if (c.std[lid]) Object.keys(c.std[lid]).forEach(k => { const [a, b] = k.split('__'); if (a === mid || b === mid) delete c.std[lid][k]; });
+      try { await store.saveCfg(c); } catch (e) {}
+    });
+  } else if (dl) {
+    const L = lineById(dl.dataset.dline);
+    openModal('Eliminar línea', `Se eliminará ${L.name} con sus modelos y estándares. Sus registros dejarán de mostrarse.`, '', 'Eliminar', async () => {
+      const c = cloneCfg(); c.lines = c.lines.filter(l => l.id !== L.id); delete c.std[L.id];
+      try { await store.saveCfg(c); } catch (e) {}
+    });
+  } else if (rn) {
+    const L = lineById(rn.dataset.ren);
+    openModal('Renombrar línea', '', `<label class="f">Nombre<input id="mName" maxlength="40" value="${esc(L.name)}"></label>`, 'Guardar', async () => {
+      const n = $('#mName').value.trim(); if (!n) return false;
+      const c = cloneCfg(); c.lines.find(l => l.id === L.id).name = n;
+      try { await store.saveCfg(c); } catch (e) {}
+    });
+  }
+});
+
+let rT; window.addEventListener('resize', () => { clearTimeout(rT); rT = setTimeout(() => renderCharts(filtered()), 200); });
+if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => render());
+
+// ---------- Excel (xlsx) lectura / escritura sin librerías externas ----------
+const XL = (() => {
+  const td = new TextDecoder(), te = new TextEncoder();
+  const u16 = (b, o) => b[o] | (b[o + 1] << 8);
+  const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
+  async function inflate(data) {
+    const ds = new DecompressionStream('deflate-raw');
+    const out = await new Response(new Blob([data]).stream().pipeThrough(ds)).arrayBuffer();
+    return new Uint8Array(out);
+  }
+  async function unzip(buf) {
+    const b = new Uint8Array(buf); let e = -1;
+    for (let i = b.length - 22; i >= Math.max(0, b.length - 70000); i--) if (u32(b, i) === 0x06054b50) { e = i; break; }
+    if (e < 0) throw new Error('El archivo no es un Excel (.xlsx) válido');
+    const n = u16(b, e + 10); let p = u32(b, e + 16); const files = {};
+    for (let k = 0; k < n; k++) {
+      if (u32(b, p) !== 0x02014b50) break;
+      const method = u16(b, p + 10), csize = u32(b, p + 20), nl = u16(b, p + 28), xl = u16(b, p + 30), cl = u16(b, p + 32), lo = u32(b, p + 42);
+      const name = td.decode(b.subarray(p + 46, p + 46 + nl));
+      const ds = lo + 30 + u16(b, lo + 26) + u16(b, lo + 28);
+      files[name] = { method, data: b.subarray(ds, ds + csize) };
+      p += 46 + nl + xl + cl;
+    }
+    return async name => { const f = files[name]; if (!f) return null; return td.decode(f.method === 0 ? f.data : await inflate(f.data)); };
+  }
+  const xml = s => new DOMParser().parseFromString(s, 'application/xml');
+  const tags = (node, t) => Array.from(node.getElementsByTagNameNS('*', t));
+  const colIdx = ref => { let c = 0; for (const ch of ref.replace(/[0-9]/g, '')) c = c * 26 + (ch.charCodeAt(0) - 64); return c - 1; };
+  async function read(buf) {
+    const get = await unzip(buf);
+    const wbx = xml(await get('xl/workbook.xml') || '');
+    const rels = xml(await get('xl/_rels/workbook.xml.rels') || '');
+    const relMap = {}; tags(rels, 'Relationship').forEach(r => relMap[r.getAttribute('Id')] = r.getAttribute('Target'));
+    const ssx = await get('xl/sharedStrings.xml');
+    const shared = ssx ? tags(xml(ssx), 'si').map(si => tags(si, 't').map(t => t.textContent).join('')) : [];
+    const sheets = {};
+    for (const s of tags(wbx, 'sheet')) {
+      const rid = s.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id') || s.getAttribute('r:id');
+      let t = relMap[rid]; if (!t) continue;
+      t = t.startsWith('/') ? t.slice(1) : 'xl/' + t.replace(/^\.\//, '');
+      const sx = await get(t); if (!sx) continue;
+      const rows = [];
+      for (const r of tags(xml(sx), 'row')) {
+        const ri = parseInt(r.getAttribute('r'), 10) - 1; const row = [];
+        for (const c of tags(r, 'c')) {
+          const ty = c.getAttribute('t'); const v = tags(c, 'v')[0]; let val = null;
+          if (ty === 's') val = v ? shared[+v.textContent] : null;
+          else if (ty === 'inlineStr') val = tags(c, 't').map(x => x.textContent).join('');
+          else if (ty === 'str') val = v ? v.textContent : '';
+          else if (ty === 'b') val = v ? v.textContent === '1' : null;
+          else if (ty === 'e') val = null;
+          else if (v && v.textContent !== '') val = parseFloat(v.textContent);
+          row[colIdx(c.getAttribute('r'))] = val;
+        }
+        rows[ri] = row;
+      }
+      sheets[s.getAttribute('name')] = rows;
+    }
+    return sheets;
+  }
+  // --- writer ---
+  const crcT = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  const crc32 = d => { let c = 0xFFFFFFFF; for (let i = 0; i < d.length; i++) c = crcT[(c ^ d[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+  function zip(entries) {
+    const parts = [], cd = []; let off = 0;
+    for (const [name, str] of entries) {
+      const nb = te.encode(name), data = te.encode(str), crc = crc32(data);
+      const h = new DataView(new ArrayBuffer(30));
+      h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true);
+      h.setUint16(10, 0, true); h.setUint16(12, 0x5A21, true); h.setUint32(14, crc, true); h.setUint32(18, data.length, true); h.setUint32(22, data.length, true);
+      h.setUint16(26, nb.length, true); h.setUint16(28, 0, true);
+      parts.push(new Uint8Array(h.buffer), nb, data);
+      const c = new DataView(new ArrayBuffer(46));
+      c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x0800, true); c.setUint16(10, 0, true);
+      c.setUint16(12, 0, true); c.setUint16(14, 0x5A21, true); c.setUint32(16, crc, true); c.setUint32(20, data.length, true); c.setUint32(24, data.length, true);
+      c.setUint16(28, nb.length, true); c.setUint32(42, off, true);
+      cd.push(new Uint8Array(c.buffer), nb);
+      off += 30 + nb.length + data.length;
+    }
+    const cdSize = cd.reduce((s, a) => s + a.length, 0);
+    const e = new DataView(new ArrayBuffer(22));
+    e.setUint32(0, 0x06054b50, true); e.setUint16(8, entries.length, true); e.setUint16(10, entries.length, true); e.setUint32(12, cdSize, true); e.setUint32(16, off, true);
+    return new Blob([...parts, ...cd, new Uint8Array(e.buffer)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  }
+  const xe = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+  const colName = i => { let s = ''; i++; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; };
+  // sheets: [{name, cols:[{h, w, date?}], rows:[[...]]}]
+  function write(sheets) {
+    const ws = sheets.map(sh => {
+      const rowXml = [sh.cols.map(c => c.h)].concat(sh.rows).map((r, ri) => `<row r="${ri + 1}">` + r.map((v, ci) => {
+        if (v == null || v === '') return '';
+        const ref = colName(ci) + (ri + 1);
+        if (ri === 0) return `<c r="${ref}" t="inlineStr" s="2"><is><t xml:space="preserve">${xe(v)}</t></is></c>`;
+        if (typeof v === 'number') return `<c r="${ref}"${sh.cols[ci].date ? ' s="1"' : ''}><v>${v}</v></c>`;
+        return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${xe(v)}</t></is></c>`;
+      }).join('') + '</row>').join('');
+      return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${sh.cols.map((c, i) => `<col min="${i + 1}" max="${i + 1}" width="${c.w}" customWidth="1"/>`).join('')}</cols><sheetData>${rowXml}</sheetData></worksheet>`;
+    });
+    const files = [
+      ['[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${ws.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`],
+      ['_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+      ['xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets.map((s, i) => `<sheet name="${xe(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>`],
+      ['xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((s, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
+      ['xl/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="dd/mm/yyyy"/></numFmts><fonts count="2"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><name val="Arial"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`]
+    ].concat(ws.map((x, i) => [`xl/worksheets/sheet${i + 1}.xml`, x]));
+    return zip(files);
+  }
+  return { read, write };
+})();
+
+// ---------- Importar / exportar Excel ----------
+const norm = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+function findSheet(sheets, key) { const k = Object.keys(sheets).find(n => norm(n).replace(/[^a-z]/g, '') === key); return k ? sheets[k] : null; }
+function mapCols(header, spec) { // spec: {campo: [prefijos en orden de prioridad]}
+  const hs = (header || []).map(norm); const m = {};
+  for (const f in spec) for (const p of spec[f]) { const i = hs.findIndex(h => h && h.startsWith(p)); if (i >= 0) { m[f] = i; break; } }
+  return m;
+}
+const cellStr = v => v == null ? '' : (typeof v === 'number' ? String(v) : String(v)).trim();
+function cellNum(v) { if (typeof v === 'number') return v; const s = cellStr(v).replace(',', '.'); if (s === '') return null; const n = Number(s); return isNaN(n) ? NaN : n; }
+function cellDate(v) {
+  if (typeof v === 'number' && v > 20000 && v < 80000) { const d = new Date(Math.round((v - 25569) * 864e5)); return d.toISOString().slice(0, 10); }
+  const s = cellStr(v); let m;
+  if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  if ((m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/))) { const y = m[3].length === 2 ? '20' + m[3] : m[3]; return `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; }
+  return null;
+}
+const sigOf = r => [r.lineId, r.fromId, r.toId, r.date, String(r.shift || ''), Number(r.minutes).toFixed(1), norm(r.notes)].join('|');
+
+function parseWorkbook(sheets) {
+  const errs = []; const err = (sh, row, msg) => errs.push(`${sh} fila ${row}: ${msg}`);
+  const shL = findSheet(sheets, 'lineas'), shM = findSheet(sheets, 'modelos'), shE = findSheet(sheets, 'estandares'), shC = findSheet(sheets, 'cambios');
+  if (!shL && !shM && !shE && !shC) throw new Error('No encontré las hojas Lineas, Modelos, Estandares ni Cambios. Usa la plantilla.');
+  // Config (líneas y modelos): se conserva el id existente cuando el nombre coincide
+  let newCfg = JSON.parse(JSON.stringify(cfg)); const cfgFromFile = !!(shL || shM);
+  if (cfgFromFile) {
+    const lines = []; const byName = {};
+    const oldLine = n => cfg.lines.find(l => norm(l.name) === norm(n));
+    const addLine = n => { const k = norm(n); if (!k) return null; if (byName[k]) return byName[k]; const o = oldLine(n); const L = { id: o ? o.id : 'l' + uid(), name: String(n).trim(), models: [] }; lines.push(L); byName[k] = L; return L; };
+    if (shL) { const mc = mapCols(shL[0], { line: ['linea'] }); (shL || []).slice(1).forEach(r => r && r[mc.line ?? 0] != null && addLine(cellStr(r[mc.line ?? 0]))); }
+    if (shM) {
+      const mc = mapCols(shM[0], { line: ['linea'], model: ['modelo'] });
+      if (mc.line == null || mc.model == null) throw new Error('La hoja Modelos necesita las columnas «Línea» y «Modelo».');
+      shM.slice(1).forEach((r, i) => {
+        if (!r) return; const ln = cellStr(r[mc.line]), mn = cellStr(r[mc.model]); if (!ln && !mn) return;
+        if (!ln || !mn) { err('Modelos', i + 2, 'falta línea o modelo'); return; }
+        const L = addLine(ln); if (L.models.some(m => norm(m.name) === norm(mn))) return;
+        const o = oldLine(ln); const om = o && o.models.find(m => norm(m.name) === norm(mn));
+        L.models.push({ id: om ? om.id : 'm' + uid(), name: mn });
+      });
+    }
+    newCfg = { lines, std: {}, locMap: cfg.locMap || {}, shifts: cfg.shifts || null };
+    if (!newCfg.shifts) delete newCfg.shifts;
+    // conservar estándares si el archivo no trae hoja Estandares
+    if (!shE) lines.forEach(L => { const o = cfg.std[L.id] || {}; const ids = new Set(L.models.map(m => m.id)); newCfg.std[L.id] = {}; Object.keys(o).forEach(k => { const [a, b] = k.split('__'); if (ids.has(a) && ids.has(b)) newCfg.std[L.id][k] = o[k]; }); });
+  }
+  const findL = n => newCfg.lines.find(l => norm(l.name) === norm(n));
+  const findMd = (L, n) => L && L.models.find(m => norm(m.name) === norm(n));
+  let nStd = 0;
+  if (shE) {
+    const mc = mapCols(shE[0], { line: ['linea'], from: ['de'], to: ['a modelo', 'a ('], min: ['minutos estandar', 'estandar', 'minutos'] });
+    if (mc.line == null || mc.from == null || mc.to == null || mc.min == null) throw new Error('La hoja Estandares necesita: Línea, De modelo, A modelo, Minutos estándar.');
+    newCfg.std = {}; newCfg.lines.forEach(L => newCfg.std[L.id] = {});
+    shE.slice(1).forEach((r, i) => {
+      if (!r) return; const ln = cellStr(r[mc.line]); if (!ln) return;
+      const L = findL(ln); if (!L) { err('Estandares', i + 2, `la línea «${ln}» no existe`); return; }
+      const a = findMd(L, cellStr(r[mc.from])), b = findMd(L, cellStr(r[mc.to]));
+      if (!a || !b) { err('Estandares', i + 2, `modelo no existe en ${L.name}`); return; }
+      const v = cellNum(r[mc.min]); if (v == null || v === 0) return; // 0 = sin capturar if (isNaN(v) || v < 0) { err('Estandares', i + 2, 'minutos inválidos'); return; }
+      newCfg.std[L.id][keyOf(a.id, b.id)] = v; nStd++;
+    });
+  }
+  let newRecs = null;
+  if (shC) {
+    const mc = mapCols(shC[0], { date: ['fecha'], line: ['linea'], from: ['de'], to: ['a modelo', 'a ('], shift: ['turno'], min: ['minutos reales', 'minutos'], notes: ['nota'] });
+    if (mc.date == null || mc.line == null || mc.from == null || mc.to == null || mc.min == null) throw new Error('La hoja Cambios necesita: Fecha, Línea, De modelo, A modelo, Minutos reales.');
+    newRecs = [];
+    shC.slice(1).forEach((r, i) => {
+      if (!r) return; const ln = cellStr(r[mc.line]); if (!ln) return; const row = i + 2;
+      const L = findL(ln); if (!L) { err('Cambios', row, `la línea «${ln}» no existe`); return; }
+      const a = findMd(L, cellStr(r[mc.from])), b = findMd(L, cellStr(r[mc.to]));
+      if (!a || !b) { err('Cambios', row, `modelo no existe en ${L.name}`); return; }
+      const date = cellDate(r[mc.date]); if (!date) { err('Cambios', row, 'fecha inválida'); return; }
+      const m = cellNum(r[mc.min]); if (m == null || isNaN(m) || m < 0) { err('Cambios', row, 'minutos inválidos'); return; }
+      const shift = mc.shift != null ? cellStr(r[mc.shift]).replace(/\.0$/, '') : '';
+      const s = newCfg.std[L.id] && newCfg.std[L.id][keyOf(a.id, b.id)];
+      const rec = { lineId: L.id, fromId: a.id, toId: b.id, date, shift, minutes: Math.round(m * 10) / 10, notes: mc.notes != null ? cellStr(r[mc.notes]).slice(0, 200) : '', createdAt: Date.now() + i };
+      if (s != null) rec.stdAtCapture = s;
+      newRecs.push(rec);
+    });
+  }
+  return { newCfg, cfgFromFile, hasStd: !!shE, nStd, newRecs, errs };
+}
+
+function planSync(newRecs, removeMissing) {
+  const pool = {}; recs.forEach(r => { const k = sigOf(r); (pool[k] = pool[k] || []).push(r.id); });
+  const adds = [];
+  newRecs.forEach(r => { const k = sigOf(r); if (pool[k] && pool[k].length) pool[k].pop(); else adds.push(r); });
+  const dels = removeMissing ? Object.values(pool).flat() : [];
+  return { adds, dels };
+}
+
+async function handleImport(file) {
+  if (!store) return;
+  let res;
+  try { const buf = await file.arrayBuffer(); res = parseWorkbook(await XL.read(buf)); }
+  catch (e) { openModal('No se pudo leer el archivo', e.message || String(e), '', 'Entendido', () => {}); $('#mCancel').style.display = 'none'; return; }
+  const { newCfg, cfgFromFile, hasStd, nStd, newRecs, errs } = res;
+  const nModels = newCfg.lines.reduce((s, l) => s + l.models.length, 0);
+  const plan0 = newRecs ? planSync(newRecs, true) : null;
+  const removedLines = cfgFromFile ? cfg.lines.filter(l => !newCfg.lines.some(n => n.id === l.id)).map(l => l.name) : [];
+  const body = `
+    <div style="font-size:13px;line-height:1.6">
+      ${cfgFromFile ? `<div>• <b>${newCfg.lines.length}</b> líneas y <b>${nModels}</b> modelos</div>` : '<div>• Líneas y modelos: sin cambios (el archivo no trae esas hojas)</div>'}
+      ${hasStd ? `<div>• <b>${nStd}</b> tiempos estándar (reemplazan a los actuales)</div>` : ''}
+      ${newRecs ? `<div>• <b>${newRecs.length}</b> cambios en el Excel: <b>${plan0.adds.length}</b> nuevos · ${newRecs.length - plan0.adds.length} ya estaban</div>` : '<div>• El archivo no trae hoja Cambios</div>'}
+      ${removedLines.length ? `<div style="color:var(--bad)">• Se quitarán las líneas: ${removedLines.map(esc).join(', ')}</div>` : ''}
+      ${errs.length ? `<div style="margin-top:8px;color:var(--bad);font-weight:600">${errs.length} filas con error no se cargarán:</div><div style="max-height:130px;overflow:auto;font-size:12px;color:var(--text-2);background:var(--surface-2);padding:6px 8px;border-radius:6px">${errs.slice(0, 50).map(esc).join('<br>')}${errs.length > 50 ? '<br>…' : ''}</div>` : '<div style="color:var(--good-text);margin-top:6px">✓ Sin errores</div>'}
+      ${newRecs ? `<label style="display:flex;gap:8px;align-items:flex-start;margin-top:12px"><input type="checkbox" id="mRemove" ${plan0.dels.length ? 'checked' : ''}><span>Quitar del tablero los cambios que no estén en el Excel (<b>${plan0.dels.length}</b>)<br><span class="hint">Desmárcalo si el archivo solo trae registros nuevos.</span></span></label>` : ''}
+    </div>`;
+  openModal(`Importar «${file.name}»`, 'Revisa el resumen antes de aplicar:', body, 'Aplicar', async () => {
+    const remove = newRecs ? $('#mRemove').checked : false;
+    const plan = newRecs ? planSync(newRecs, remove) : { adds: [], dels: [] };
+    closeModal();
+    try {
+      if (cfgFromFile || hasStd) await store.saveCfg(newCfg);
+      if (plan.adds.length || plan.dels.length) await store.bulk(plan.adds, plan.dels, (d, t) => setSync('', `Importando… ${d} de ${t}`));
+      setSync('on', 'Importación terminada');
+      toast(`Importado: +${plan.adds.length} cambios${plan.dels.length ? ' · −' + plan.dels.length : ''}`);
+    } catch (e) { toast('La importación se detuvo: ' + (e && e.message ? e.message : 'error')); }
+    return false;
+  });
+}
+$('#xlFile').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) handleImport(f); });
+
+async function exportExcel() {
+  const toSerial = d => { const [y, m, dd] = d.split('-').map(Number); return Date.UTC(y, m - 1, dd) / 864e5 + 25569; };
+  const rowsM = [], rowsE = [];
+  cfg.lines.forEach(L => { L.models.forEach(m => rowsM.push([L.name, m.name]));
+    L.models.forEach(a => L.models.forEach(b => { const v = stdOf(L.id, a.id, b.id); rowsE.push([L.name, a.name, b.name, v == null ? '' : v]); })); });
+  const rowsC = recs.filter(r => lineById(r.lineId)).sort((a, b) => (a.date + (a.createdAt || 0)).localeCompare(b.date + (b.createdAt || 0))).map(r => {
+    const L = lineById(r.lineId); return [toSerial(r.date), L.name, modelName(L, r.fromId), modelName(L, r.toId), r.shift || '', Number(r.minutes), r.notes || ''];
+  });
+  const blob = XL.write([
+    { name: 'Lineas', cols: [{ h: 'Línea', w: 28 }], rows: cfg.lines.map(l => [l.name]) },
+    { name: 'Modelos', cols: [{ h: 'Línea', w: 24 }, { h: 'Modelo / No. de parte', w: 26 }], rows: rowsM },
+    { name: 'Estandares', cols: [{ h: 'Línea', w: 22 }, { h: 'De modelo (sale)', w: 20 }, { h: 'A modelo (entra)', w: 20 }, { h: 'Minutos estándar', w: 16 }], rows: rowsE },
+    { name: 'Cambios', cols: [{ h: 'Fecha', w: 12, date: true }, { h: 'Línea', w: 20 }, { h: 'De modelo (sale)', w: 18 }, { h: 'A modelo (entra)', w: 18 }, { h: 'Turno', w: 8 }, { h: 'Minutos reales', w: 13 }, { h: 'Notas / causa', w: 36 }], rows: rowsC }
+  ]);
+  const filename = `Cambios_de_Modelo_${todayStr()}.xlsx`;
+  let dl = null; try { if (window.claude && window.claude.use) dl = await window.claude.use('downloads'); } catch (e) {}
+  if (dl) { try { await dl.save({ filename, data: blob }); toast('Excel exportado'); } catch (e) { if (!e || e.code !== 'declined') toast('No se pudo exportar el archivo'); } return; }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  toast('Excel exportado');
+}
+$('#xlExport').addEventListener('click', exportExcel);
+
+// ---------- Importación masiva de registros (Ignition / plantilla de registros) ----------
+function parseCSV(text) {
+  text = text.replace(/^﻿/, '');
+  const first = text.split(/\r?\n/)[0] || '';
+  const delim = [',', ';', '\t'].sort((a, b) => first.split(b).length - first.split(a).length)[0];
+  const rows = []; let row = [], cur = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === delim) { row.push(cur); cur = ''; }
+    else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cur); rows.push(row); row = []; cur = ''; }
+    else cur += ch;
+  }
+  if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+  return rows.map(r => r.map(v => { const t = v.trim(); return /^-?\d+([.,]\d+)?$/.test(t) && !/^0\d/.test(t) ? Number(t.replace(',', '.')) : t; }));
+}
+const BULK_SPEC = [
+  ['date', ['date', 'fecha', 'start', 'inicio', 'timestamp', 't_stamp', 'datetime']],
+  ['time', ['hora', 'time']],
+  ['loc', ['location', 'linea', 'line', 'ubicacion', 'area', 'machine', 'maquina', 'equipo']],
+  ['reason', ['reason', 'razon', 'motivo', 'causa']],
+  ['qty', ['qty', 'quantity', 'cantidad', 'minutos', 'minutes', 'duration', 'duracion']],
+  ['from', ['de modelo', 'from model', 'modelo anterior', 'previous model', 'from']],
+  ['to', ['a modelo', 'to model', 'modelo nuevo', 'new model', 'model', 'modelo', 'product', 'producto', 'material']],
+  ['shift', ['turno', 'shift']],
+  ['comment', ['comentario', 'comment', 'notas', 'nota', 'notes', 'observ']]
+];
+function bulkMap(header) {
+  const hs = header.map(norm); const used = new Set(); const m = {};
+  for (const [f, ps] of BULK_SPEC) for (const p of ps) { const i = hs.findIndex((h, k) => !used.has(k) && h && (h === p || h.startsWith(p + ' ') || h.startsWith(p + '(') || h.startsWith(p + '_') || (p.length > 4 && h.startsWith(p)))); if (i >= 0) { m[f] = i; used.add(i); break; } }
+  return m;
+}
+function pickTable(sheets) { // sheets: {name: rows}
+  const names = Object.keys(sheets).sort((a, b) => (norm(b).includes('registro') ? 1 : 0) - (norm(a).includes('registro') ? 1 : 0));
+  for (const n of names) { const rows = sheets[n] || []; for (let h = 0; h < Math.min(10, rows.length); h++) { const m = bulkMap(rows[h] || []); if (m.date != null && m.qty != null) return { rows, h, m, sheet: n }; } }
+  return null;
+}
+// fecha/hora → {date, time, ts, raw}
+function parseDT(v, tv, order) {
+  let d = null, hh = null, mm = 0;
+  if (typeof v === 'number' && v > 20000 && v < 80000) { const ms = Math.round((v - 25569) * 864e5); const x = new Date(ms); d = x.toISOString().slice(0, 10); if (v % 1) { hh = x.getUTCHours(); mm = x.getUTCMinutes(); } }
+  else {
+    const s = cellStr(v); let m;
+    if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?/))) { d = `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`; if (m[4] != null) { hh = +m[4]; mm = +m[5]; } }
+    else if ((m = s.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})(?:[ ,T]+(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap]\.?\s?m\.?)?)?/i))) {
+      let a = +m[1], b = +m[2]; const y = m[3].length === 2 ? '20' + m[3] : m[3];
+      let day, mon; if (order === 'mdy') { mon = a; day = b; } else { day = a; mon = b; }
+      d = `${y}-${String(mon).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      if (m[4] != null) { hh = +m[4]; mm = +m[5]; const ap = (m[6] || '').toLowerCase(); if (ap.startsWith('p') && hh < 12) hh += 12; if (ap.startsWith('a') && hh === 12) hh = 0; }
+    }
+  }
+  if (tv != null && tv !== '') { if (typeof tv === 'number' && tv < 1) { const t = Math.round(tv * 1440); hh = Math.floor(t / 60); mm = t % 60; } else { const m = cellStr(tv).match(/(\d{1,2}):(\d{2})\s*([ap])?/i); if (m) { hh = +m[1]; mm = +m[2]; if (m[3] && m[3].toLowerCase() === 'p' && hh < 12) hh += 12; } } }
+  if (!d || isNaN(Date.parse(d))) return null;
+  return { date: d, time: hh == null ? '' : `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`, h: hh == null ? null : hh + mm / 60 };
+}
+function detectOrder(vals) {
+  let dmy = 0, mdy = 0;
+  vals.forEach(v => { const m = typeof v === 'string' && v.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-]/); if (m) { if (+m[1] > 12) dmy++; if (+m[2] > 12) mdy++; } });
+  return mdy > dmy ? 'mdy' : 'dmy';
+}
+function modelAliases(m) { const out = [m.name]; const parts = m.name.split('·').map(x => x.trim()).filter(Boolean); if (parts.length > 1) out.push(...parts); return out.map(norm).filter(a => a.length >= 3); }
+function findModelExact(L, s) { if (!L || !s) return null; const n = norm(s); return L.models.find(m => modelAliases(m).includes(n)) || L.models.find(m => norm(m.name).includes(n) && n.length >= 4) || null; }
+function findModelsInText(L, text) {
+  if (!L || !text) return []; const t = norm(text); const hits = [];
+  L.models.forEach(m => { let best = -1, len = 0; modelAliases(m).forEach(a => { const i = t.indexOf(a); if (i >= 0 && (best < 0 || a.length > len)) { best = i; len = a.length; } }); if (best >= 0) hits.push({ m, i: best, len }); });
+  hits.sort((a, b) => a.i - b.i || b.len - a.len);
+  return hits.map(h => h.m);
+}
+function shiftOf(h, starts) { // starts: [t1,t2,t3] horas decimales
+  if (h == null) return '';
+  const s = starts.map((v, i) => ({ v, n: String(i + 1) })).sort((a, b) => a.v - b.v);
+  let cur = s[s.length - 1].n; for (const x of s) if (h >= x.v) cur = x.n; return cur;
+}
+const hm = s => { const m = String(s || '').match(/(\d{1,2}):(\d{2})/); return m ? +m[1] + +m[2] / 60 : 0; };
+
+let B = null; // estado de la importación masiva
+async function openBulk(file) {
+  let table;
+  try {
+    if (/\.(csv|txt)$/i.test(file.name)) table = pickTable({ csv: parseCSV(await file.text()) });
+    else table = pickTable(await XL.read(await file.arrayBuffer()));
+    if (!table) throw new Error('No encontré columnas de fecha (Date/Fecha) y cantidad (Qty/Minutos) en las primeras filas.');
+  } catch (e) { openModal('No se pudo leer el archivo', e.message || String(e), '', 'Entendido', () => {}); $('#mCancel').style.display = 'none'; return; }
+  const { rows, h, m } = table;
+  const data = rows.slice(h + 1).filter(r => r && r.some(v => v !== null && v !== ''));
+  const reasons = {}; const locs = {};
+  data.forEach(r => { const re = m.reason != null ? cellStr(r[m.reason]) : ''; reasons[re] = (reasons[re] || 0) + 1; const lo = m.loc != null ? cellStr(r[m.loc]) : ''; locs[lo] = (locs[lo] || 0) + 1; });
+  const isCh = s => /cambio|change|setup|set up|c\.?o\.?\b|smed|model/i.test(s);
+  const anyCh = Object.keys(reasons).some(isCh);
+  const locMap = {};
+  Object.keys(locs).forEach(lo => {
+    const saved = cfg.locMap && cfg.locMap[norm(lo)];
+    const L = (saved && lineById(saved)) || cfg.lines.find(l => norm(l.name) === norm(lo)) || cfg.lines.find(l => norm(lo).includes(norm(l.name)) || norm(l.name).includes(norm(lo)) && norm(lo).length >= 3) || (cfg.lines.length === 1 ? cfg.lines[0] : null);
+    locMap[lo] = L ? L.id : (ui.line !== 'all' ? ui.line : '');
+  });
+  const sh = (cfg.shifts && cfg.shifts.length === 3) ? cfg.shifts : ['06:00', '14:00', '22:00'];
+  B = {
+    file: file.name, m, data,
+    order: detectOrder(data.map(r => r[m.date])),
+    unit: 'min', shifts: sh.slice(), locMap,
+    reasons: Object.fromEntries(Object.keys(reasons).map(k => [k, { n: reasons[k], on: !anyCh || isCh(k) }])),
+    over: {}, // overrides por fila: {from, to, skip}
+  };
+  $('#bulkBg').classList.add('open');
+  renderBulk();
+}
+function bulkRows() {
+  const { m, data } = B; const starts = B.shifts.map(hm); const k = B.unit === 'seg' ? 1 / 60 : B.unit === 'h' ? 60 : 1;
+  const srcSet = new Set(recs.map(r => r.src).filter(Boolean));
+  const out = data.map((r, i) => {
+    const reason = m.reason != null ? cellStr(r[m.reason]) : '';
+    const loc = m.loc != null ? cellStr(r[m.loc]) : '';
+    const dt = parseDT(r[m.date], m.time != null ? r[m.time] : null, B.order);
+    const q = cellNum(r[m.qty]);
+    const lineId = B.locMap[loc] || '';
+    const L = lineById(lineId);
+    const comment = m.comment != null ? cellStr(r[m.comment]) : '';
+    let from = m.from != null ? findModelExact(L, cellStr(r[m.from])) : null;
+    let to = m.to != null ? findModelExact(L, cellStr(r[m.to])) : null;
+    let how = (from || to) ? 'columna' : '';
+    if (!from && !to) { const hits = findModelsInText(L, reason + ' ' + comment); if (hits.length >= 2) { from = hits[0]; to = hits[1]; how = 'texto'; } else if (hits.length === 1) { to = hits[0]; how = 'texto'; } }
+    const shift = m.shift != null && cellStr(r[m.shift]) ? cellStr(r[m.shift]).replace(/^(turno|shift)\s*/i, '').replace(/\.0$/, '') : (dt ? shiftOf(dt.h, starts) : '');
+    const src = ['ign', norm(loc), dt ? dt.date + 'T' + dt.time : cellStr(r[m.date]), q, norm(reason)].join('|');
+    return { i, row: i + 2, reason, loc, lineId, dt, minutes: q == null || isNaN(q) ? null : Math.round(q * k * 10) / 10, comment, fromId: from ? from.id : '', toId: to ? to.id : '', how, shift, src, dup: srcSet.has(src), on: B.reasons[reason] ? B.reasons[reason].on : true };
+  });
+  // inferir "De" con el modelo anterior de la misma línea
+  const lastTo = {};
+  recs.slice().sort((a, b) => (a.date + (a.time || '') + (a.createdAt || 0)).localeCompare(b.date + (b.time || '') + (b.createdAt || 0))).forEach(r => lastTo[r.lineId] = r.toId);
+  out.filter(x => x.on && x.dt).sort((a, b) => (a.dt.date + a.dt.time).localeCompare(b.dt.date + b.dt.time) || a.i - b.i).forEach(x => {
+    const o = B.over[x.i] || {};
+    if (o.from) x.fromId = o.from; if (o.to) x.toId = o.to;
+    if (!x.fromId && x.toId && lastTo[x.lineId]) { x.fromId = lastTo[x.lineId]; x.inferred = true; }
+    if (x.toId) lastTo[x.lineId] = x.toId;
+  });
+  out.forEach(x => {
+    const o = B.over[x.i] || {};
+    x.skip = !!o.skip;
+    x.status = !x.on ? 'filtrado' : x.dup ? 'ya importado' : !x.dt ? 'fecha inválida' : x.minutes == null || x.minutes < 0 ? 'minutos inválidos' : !x.lineId ? 'falta línea' : (!x.fromId || !x.toId) ? 'falta modelo' : 'ok';
+  });
+  return out;
+}
+function renderBulk() {
+  const rows = bulkRows();
+  const lineOpts = sel => `<option value="">— elegir —</option>` + cfg.lines.map(l => `<option value="${esc(l.id)}"${l.id === sel ? ' selected' : ''}>${esc(l.name)}</option>`).join('');
+  const cnt = s => rows.filter(x => x.status === s && !x.skip).length;
+  const ok = cnt('ok');
+  $('#bulkTitle').textContent = `Importar registros · ${B.file}`;
+  const reasonKeys = Object.keys(B.reasons).sort((a, b) => B.reasons[b].n - B.reasons[a].n);
+  $('#bulkCfg').innerHTML = `
+    <div class="bk-grid">
+      <div><div class="flabel">Columnas detectadas</div><div class="hint">${BULK_SPEC.filter(([f]) => B.m[f] != null).map(([f]) => ({ date: 'Fecha', time: 'Hora', loc: 'Location', reason: 'Reason', qty: 'Qty', from: 'De modelo', to: 'A modelo', shift: 'Turno', comment: 'Comentarios' }[f])).join(' · ')}</div></div>
+      <label class="f">Qty está en<select id="bkUnit"><option value="min">minutos</option><option value="seg">segundos</option><option value="h">horas</option></select></label>
+      <label class="f">Formato de fecha<select id="bkOrder"><option value="dmy">dd/mm/aaaa</option><option value="mdy">mm/dd/aaaa</option></select></label>
+      <div class="f"><span>Inicio de turnos (1 · 2 · 3)</span><div class="row">${B.shifts.map((s, i) => `<input type="text" inputmode="numeric" maxlength="5" placeholder="hh:mm" data-sh="${i}" value="${s}" style="width:70px">`).join('')}</div></div>
+    </div>
+    <div class="bk-grid" style="margin-top:10px">
+      <div><div class="flabel">Location → Línea</div>${Object.keys(B.locMap).map(lo => `<div class="row" style="align-items:center;margin-top:4px"><span class="mono" style="min-width:110px;font-size:12px">${esc(lo || '(vacío)')}</span><select data-loc="${esc(lo)}">${lineOpts(B.locMap[lo])}</select></div>`).join('')}</div>
+      <div style="grid-column:span 2"><div class="flabel">Reasons a importar <span class="hint">(marca solo los de cambio de modelo)</span></div><div class="bk-reasons">${reasonKeys.map(r => `<label><input type="checkbox" data-rs="${esc(r)}" ${B.reasons[r].on ? 'checked' : ''}> ${esc(r || '(vacío)')} <span class="hint">${B.reasons[r].n}</span></label>`).join('')}</div></div>
+    </div>`;
+  $('#bkUnit').value = B.unit; $('#bkOrder').value = B.order;
+  const show = rows.filter(x => x.on);
+  const modelOpts = (L, sel) => `<option value="">—</option>` + (L ? L.models.map(mm => `<option value="${esc(mm.id)}"${mm.id === sel ? ' selected' : ''}>${esc(mm.name)}</option>`).join('') : '');
+  $('#bulkTbl').innerHTML = `<thead><tr><th></th><th>Fila</th><th>Fecha</th><th>Hora</th><th>T</th><th>Línea</th><th>De modelo</th><th>A modelo</th><th class="r">Min</th><th>Reason / comentario</th><th>Estado</th></tr></thead><tbody>` +
+    show.slice(0, 400).map(x => { const L = lineById(x.lineId); const st = x.skip ? 'omitido' : x.status;
+      return `<tr class="${st === 'ok' ? '' : 'bk-off'}"><td><input type="checkbox" data-sk="${x.i}" ${x.skip || x.dup ? '' : 'checked'} ${x.dup ? 'disabled' : ''}></td><td class="hint">${x.row}</td><td class="num">${x.dt ? x.dt.date.split('-').reverse().join('/') : esc(cellStr(B.data[x.i][B.m.date]))}</td><td class="num">${x.dt ? x.dt.time : ''}</td><td>${esc(x.shift)}</td><td>${L ? esc(L.name) : '<span style="color:var(--bad)">?</span>'}</td>
+      <td><select data-fr="${x.i}">${modelOpts(L, x.fromId)}</select>${x.inferred ? '<div class="hint">anterior</div>' : ''}</td><td><select data-to="${x.i}">${modelOpts(L, x.toId)}</select></td>
+      <td class="r num">${x.minutes == null ? '—' : fmt(x.minutes)}</td><td style="white-space:normal;max-width:240px;font-size:12px">${esc(x.reason)}${x.comment ? ' · ' + esc(x.comment) : ''}</td>
+      <td>${st === 'ok' ? '<span class="badge good">✓ listo</span>' : `<span class="badge ${st === 'ya importado' || st === 'omitido' ? '' : 'bad'}">${esc(st)}</span>`}</td></tr>`; }).join('') + '</tbody>';
+  $('#bulkSum').innerHTML = `<b>${ok}</b> listos para importar · ${cnt('falta modelo')} sin modelo · ${cnt('falta línea')} sin línea · ${rows.filter(x => x.dup).length} ya importados · ${rows.filter(x => !x.on).length} filtrados por Reason${show.length > 400 ? ' · se muestran 400 filas' : ''}`;
+  $('#bulkOk').disabled = !ok || !canWrite; $('#bulkOk').textContent = `Importar ${ok} registros`;
+  B.rows = rows;
+}
+$('#bulkBg').addEventListener('change', e => {
+  const t = e.target; if (!B) return;
+  if (t.id === 'bkUnit') B.unit = t.value;
+  else if (t.id === 'bkOrder') B.order = t.value;
+  else if (t.dataset.sh != null) B.shifts[+t.dataset.sh] = t.value;
+  else if (t.dataset.loc != null) B.locMap[t.dataset.loc] = t.value;
+  else if (t.dataset.rs != null) B.reasons[t.dataset.rs].on = t.checked;
+  else if (t.dataset.sk != null) (B.over[t.dataset.sk] = B.over[t.dataset.sk] || {}).skip = !t.checked;
+  else if (t.dataset.fr != null) (B.over[t.dataset.fr] = B.over[t.dataset.fr] || {}).from = t.value;
+  else if (t.dataset.to != null) (B.over[t.dataset.to] = B.over[t.dataset.to] || {}).to = t.value;
+  else return;
+  renderBulk();
+});
+$('#bulkCancel').addEventListener('click', () => { $('#bulkBg').classList.remove('open'); B = null; });
+$('#bulkOk').addEventListener('click', async () => {
+  if (!B || !store) return;
+  const adds = B.rows.filter(x => x.status === 'ok' && !x.skip).map((x, k) => {
+    const s = stdOf(x.lineId, x.fromId, x.toId);
+    const r = { lineId: x.lineId, fromId: x.fromId, toId: x.toId, date: x.dt.date, time: x.dt.time, shift: x.shift, minutes: x.minutes, notes: [x.reason, x.comment].filter(Boolean).join(' · ').slice(0, 200), src: x.src, createdAt: Date.now() + k };
+    if (myId) r.by = myId;
+    if (s != null) r.stdAtCapture = s; return r;
+  });
+  // guardar mapeo Location→Línea y turnos para la próxima vez
+  const c = JSON.parse(JSON.stringify(cfg)); c.locMap = Object.assign({}, c.locMap || {}); let ch = false;
+  Object.keys(B.locMap).forEach(lo => { if (B.locMap[lo] && c.locMap[norm(lo)] !== B.locMap[lo]) { c.locMap[norm(lo)] = B.locMap[lo]; ch = true; } });
+  if (JSON.stringify(c.shifts || []) !== JSON.stringify(B.shifts)) { c.shifts = B.shifts.slice(); ch = true; }
+  $('#bulkBg').classList.remove('open'); B = null;
+  try {
+    if (ch && isAdmin) await store.saveCfg(c);
+    await store.bulk(adds, [], (d, t) => setSync('', `Importando… ${d} de ${t}`));
+    setSync('on', 'Importación terminada'); toast(`${adds.length} registros importados`);
+  } catch (e) { toast('La importación se detuvo: ' + (e && e.message ? e.message : 'error')); }
+});
+$('#bulkFile').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) openBulk(f); });
+
+
+// ---------- Página de inicio / login ----------
+const LAND = {
+  show(html) { $('#landBody').innerHTML = html; $('#landing').classList.add('open'); document.body.classList.add('locked'); const f = $('#landBody input'); if (f) setTimeout(() => f.focus(), 30); },
+  enter() { $('#landing').classList.remove('open'); document.body.classList.remove('locked'); render(); }
+};
+const ROLE_TXT = { admin: 'Administrador', cap: 'Capturista', ro: 'Solo lectura' };
+function setChip(name, avatar, roleTxt, ro) {
+  $('#whoChip').hidden = false; $('#whoAv').src = avatar; $('#whoName').textContent = name; $('#whoRole').textContent = roleTxt; $('#whoRole').classList.toggle('ro', !!ro);
+}
+function cloudLanding(user) {
+  user.me().then(me => {
+    const roleTxt = $('#whoRole').textContent || 'Solo lectura';
+    const desc = isAdmin ? 'Puedes ver, capturar, importar y administrar líneas, modelos, estándares y registros.' : canWrite ? 'Puedes ver el tablero, registrar cambios e importar registros.' : 'Puedes consultar la matriz, las gráficas y los registros.';
+    LAND.show(`<div class="me"><img alt="" src="${esc(me.avatarUrl)}"><div><b id="lName"></b><span class="role ${canWrite ? '' : 'ro'}">${esc(roleTxt)}</span></div></div>
+      <div class="lmsg" style="margin-bottom:14px">Entraste con tu cuenta de Claude. ${desc}</div>
+      <button class="btn" id="lEnter" type="button">Entrar al tablero</button>`);
+    $('#lName').textContent = me.name || 'Usuario';
+    $('#lEnter').onclick = () => LAND.enter();
+  });
+}
+// usuarios locales (solo archivo HTML)
+const LOCALU = {
+  load() { try { return JSON.parse(localStorage.getItem('smed-users') || '[]'); } catch (e) { return []; } },
+  save(us) { try { localStorage.setItem('smed-users', JSON.stringify(us)); } catch (e) {} },
+  async hash(salt, pw) {
+    const txt = salt + '|' + pw;
+    try { const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt)); return Array.from(new Uint8Array(b)).map(x => x.toString(16).padStart(2, '0')).join(''); }
+    catch (e) { let h = 5381; for (const ch of txt) h = ((h << 5) + h + ch.charCodeAt(0)) >>> 0; return 'f' + h.toString(16); }
+  }
+};
+const initialsAv = name => { const ini = (name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase(); return 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" rx="20" fill="#fab219"/><text x="20" y="25" font-family="Arial" font-size="15" font-weight="700" text-anchor="middle" fill="#16181b">${ini.replace(/[<&>]/g, '')}</text></svg>`); };
+function applyLocalUser(u) {
+  myId = u.id; isAdmin = u.role === 'admin'; canWrite = u.role !== 'ro';
+  setChip(u.name, initialsAv(u.name), ROLE_TXT[u.role], u.role === 'ro');
+  const note = $('#roleNote'); note.classList.remove('show');
+  if (!canWrite) { note.textContent = 'Tienes acceso de solo lectura. Pide al administrador un usuario de Capturista para registrar cambios.'; note.classList.add('show'); }
+  else if (!isAdmin) { note.textContent = 'Entraste como Capturista: puedes registrar cambios e importar registros. La configuración, los estándares y el borrado de registros los maneja el administrador.'; note.classList.add('show'); }
+}
+function localLogin() {
+  const us = LOCALU.load();
+  try { const sid = sessionStorage.getItem('smed-sess'); const u = sid && us.find(x => x.id === sid); if (u) { applyLocalUser(u); LAND.enter(); return; } } catch (e) {}
+  if (!us.length) {
+    LAND.show(`<form class="stack" id="lSetup" autocomplete="off">
+      <div class="lmsg"><b>Primera vez:</b> crea el usuario administrador de esta computadora. Después podrás agregar capturistas en «Usuarios».</div>
+      <label class="f">Nombre<input id="lsName" required maxlength="40" placeholder="Ej. Erik Bandala"></label>
+      <label class="f">Usuario<input id="lsUser" required maxlength="30" autocapitalize="off"></label>
+      <label class="f">Contraseña<input id="lsPass" type="password" required minlength="4"></label>
+      <label class="f">Confirmar contraseña<input id="lsPass2" type="password" required minlength="4"></label>
+      <div class="lerr" id="lErr"></div>
+      <button class="btn" type="submit">Crear y entrar</button></form>`);
+    $('#lSetup').onsubmit = async e => {
+      e.preventDefault();
+      if ($('#lsPass').value !== $('#lsPass2').value) { $('#lErr').textContent = 'Las contraseñas no coinciden.'; return; }
+      const salt = uid() + uid(); const u = { id: 'lu' + uid(), name: $('#lsName').value.trim(), user: $('#lsUser').value.trim().toLowerCase(), salt, hash: await LOCALU.hash(salt, $('#lsPass').value), role: 'admin' };
+      LOCALU.save([u]); try { sessionStorage.setItem('smed-sess', u.id); } catch (e) {}
+      applyLocalUser(u); LAND.enter();
+    };
+    return;
+  }
+  LAND.show(`<form class="stack" id="lLogin" autocomplete="off">
+    <label class="f">Usuario<input id="llUser" required autocapitalize="off" autocomplete="username"></label>
+    <label class="f">Contraseña<input id="llPass" type="password" required autocomplete="current-password"></label>
+    <div class="lerr" id="lErr"></div>
+    <button class="btn" type="submit">Entrar</button>
+    <div class="lmsg" style="font-size:12px;color:#8f8e86">¿Olvidaste tu contraseña? Pide al administrador que te dé de alta otra vez.</div></form>`);
+  $('#lLogin').onsubmit = async e => {
+    e.preventDefault();
+    const u = LOCALU.load().find(x => x.user === $('#llUser').value.trim().toLowerCase());
+    if (!u || await LOCALU.hash(u.salt, $('#llPass').value) !== u.hash) { $('#lErr').textContent = 'Usuario o contraseña incorrectos.'; $('#llPass').value = ''; return; }
+    try { sessionStorage.setItem('smed-sess', u.id); } catch (e) {}
+    applyLocalUser(u); LAND.enter();
+  };
+}
+$('#whoOut').addEventListener('click', () => {
+  if (userNS) { cloudLanding(userNS); return; }
+  try { sessionStorage.removeItem('smed-sess'); } catch (e) {}
+  myId = null; isAdmin = false; canWrite = false; $('#whoChip').hidden = true; localLogin();
+});
+function renderUsers() {
+  const card = $('#usersCard'); const local = !userNS && store && !(window.claude && window.claude.use);
+  card.hidden = !(local && isAdmin); if (card.hidden) return;
+  const us = LOCALU.load();
+  $('#usersTbl').innerHTML = '<thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th></th></tr></thead><tbody>' + us.map(u => `<tr><td>${esc(u.name)}${u.id === myId ? ' <span class="hint">(tú)</span>' : ''}</td><td class="mono">${esc(u.user)}</td>
+    <td><select data-urole="${esc(u.id)}" ${u.id === myId ? 'disabled' : ''}>${Object.keys(ROLE_TXT).map(k => `<option value="${k}" ${u.role === k ? 'selected' : ''}>${ROLE_TXT[k]}</option>`).join('')}</select></td>
+    <td>${u.id === myId ? '' : `<button class="x" data-udel="${esc(u.id)}" aria-label="Eliminar usuario">✕</button>`}</td></tr>`).join('') + '</tbody>';
+}
+$('#usersTbl').addEventListener('change', e => { const t = e.target.closest('[data-urole]'); if (!t) return; const us = LOCALU.load(); const u = us.find(x => x.id === t.dataset.urole); if (u) { u.role = t.value; LOCALU.save(us); toast('Rol actualizado'); } });
+$('#usersTbl').addEventListener('click', e => { const b = e.target.closest('[data-udel]'); if (!b) return; const us = LOCALU.load(); const u = us.find(x => x.id === b.dataset.udel); if (!u) return;
+  openModal('Eliminar usuario', `Se eliminará el usuario «${u.name}». Sus registros se conservan.`, '', 'Eliminar', () => { LOCALU.save(us.filter(x => x.id !== u.id)); renderUsers(); }); });
+$('#addUserForm').addEventListener('submit', async e => {
+  e.preventDefault(); const us = LOCALU.load(); const user = $('#nuUser').value.trim().toLowerCase();
+  if (us.some(x => x.user === user)) { toast('Ese usuario ya existe'); return; }
+  const salt = uid() + uid(); us.push({ id: 'lu' + uid(), name: $('#nuName').value.trim(), user, salt, hash: await LOCALU.hash(salt, $('#nuPass').value), role: $('#nuRole').value });
+  LOCALU.save(us); e.target.reset(); renderUsers(); toast('Usuario agregado');
+});
+
+render();
+init();
+})();
+</script>
+</body>
+</html>
