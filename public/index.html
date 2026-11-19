@@ -1409,7 +1409,7 @@ async function apiRefresh(force) {
     setSync('err', 'Sin conexión con el servidor; reintentando…');
   }
 }
-function startPolling() { stopPolling(); apiTimer = setInterval(() => { if (!document.hidden) apiRefresh(false); }, 10000); document.addEventListener('visibilitychange', onVis); }
+function startPolling() { stopPolling(); apiTimer = setInterval(() => { if (!document.hidden) apiRefresh(false); }, 30000); document.addEventListener('visibilitychange', onVis); }
 function stopPolling() { if (apiTimer) clearInterval(apiTimer); apiTimer = null; document.removeEventListener('visibilitychange', onVis); }
 const onVis = () => { if (!document.hidden) apiRefresh(false); };
 function apiStore() {

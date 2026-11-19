@@ -8,7 +8,7 @@ Tablero para monitorear cambios de modelo (SMED) en las líneas **Press** y **Dr
 - **Gráficas de real vs estándar:** por transición, tendencia, por línea o turno, y Pareto de minutos perdidos.
 - **Registro de cambios** uno por uno o masivo desde Excel/CSV, incluida la exportación de Ignition (Date, Reasons, Location, Qty).
 - **Importar y exportar** la configuración completa en Excel: líneas, modelos, TiposCambio y estándares.
-- **Datos en vivo.** Todos ven lo mismo y la pantalla se actualiza sola cada 10 segundos.
+- **Datos en vivo.** Todos ven lo mismo y la pantalla se actualiza sola cada 30 segundos (y al volver a la pestaña).
 
 | Rol | Puede |
 |---|---|
