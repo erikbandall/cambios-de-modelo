@@ -170,6 +170,15 @@ body.locked{overflow:hidden}
 #whoUsers{color:#16181b;background:var(--warn);text-decoration:none;border-radius:999px;padding:2px 10px;font-weight:600}
 #whoUsers:hover{color:#16181b;filter:brightness(1.1)}
 .users-tbl td,.users-tbl th{padding:6px 8px}
+#chartBg{position:fixed;inset:0;z-index:70;display:none;background:rgba(0,0,0,.6);padding:16px}
+#chartBg.open{display:flex;align-items:center;justify-content:center}
+.cb-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;width:min(1500px,100%);height:min(900px,100%);display:flex;flex-direction:column;padding:16px 18px}
+.cb-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px}
+.cb-head h2{margin:0;font-size:18px}
+.cb-body{position:relative;flex:1;min-height:0}
+.chart-box{cursor:zoom-in}
+.card-h .exp{flex-shrink:0}
+@media (max-width:640px){#chartBg{padding:0}.cb-card{border-radius:0;height:100%;padding:12px}}
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--surface);padding:10px 16px;border-radius:8px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:60}
 .toast.show{opacity:1}
 .banner{background:color-mix(in srgb,var(--warn) 18%,var(--surface));border:1px solid color-mix(in srgb,var(--warn) 50%,transparent);border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:13px;display:none;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
@@ -231,12 +240,12 @@ details.tv table{font-size:12px;margin-top:6px}
 
   <div class="grid2">
     <section class="card">
-      <div class="card-h"><div><h2>Real vs estándar por transición</h2><div class="sub">Promedio en minutos · transiciones más frecuentes</div></div></div>
+      <div class="card-h"><div><h2>Real vs estándar por transición</h2><div class="sub">Promedio en minutos · transiciones más frecuentes</div></div><button class="btn ghost sm exp" type="button" data-exp="cTrans" title="Ver la gráfica en grande">⤢ Ampliar</button></div>
       <div class="chart-box tall"><canvas id="cTrans" aria-label="Real vs estándar por transición"></canvas></div>
       <div id="cTransEmpty" class="empty-state" hidden>Sin cambios registrados en este filtro.</div>
     </section>
     <section class="card">
-      <div class="card-h"><div><h2>Tendencia diaria</h2><div class="sub">Promedio real vs estándar por día · minutos</div></div></div>
+      <div class="card-h"><div><h2>Tendencia diaria</h2><div class="sub">Promedio real vs estándar por día · minutos</div></div><button class="btn ghost sm exp" type="button" data-exp="cTrend" title="Ver la gráfica en grande">⤢ Ampliar</button></div>
       <div class="chart-box tall"><canvas id="cTrend" aria-label="Tendencia diaria real vs estándar"></canvas></div>
       <div id="cTrendEmpty" class="empty-state" hidden>Sin cambios registrados en este filtro.</div>
     </section>
@@ -244,12 +253,12 @@ details.tv table{font-size:12px;margin-top:6px}
 
   <div class="grid2">
     <section class="card">
-      <div class="card-h"><div><h2 id="cGroupTitle">Real vs estándar por línea</h2><div class="sub">Promedio en minutos</div></div></div>
+      <div class="card-h"><div><h2 id="cGroupTitle">Real vs estándar por línea</h2><div class="sub">Promedio en minutos</div></div><button class="btn ghost sm exp" type="button" data-exp="cGroup" title="Ver la gráfica en grande">⤢ Ampliar</button></div>
       <div class="chart-box"><canvas id="cGroup"></canvas></div>
       <div id="cGroupEmpty" class="empty-state" hidden>Sin datos.</div>
     </section>
     <section class="card">
-      <div class="card-h"><div><h2>Minutos perdidos vs estándar</h2><div class="sub">Suma de excedentes (real − estándar) por transición</div></div></div>
+      <div class="card-h"><div><h2>Minutos perdidos vs estándar</h2><div class="sub">Suma de excedentes (real − estándar) por transición</div></div><button class="btn ghost sm exp" type="button" data-exp="cLost" title="Ver la gráfica en grande">⤢ Ampliar</button></div>
       <div class="chart-box"><canvas id="cLost"></canvas></div>
       <div id="cLostEmpty" class="empty-state" hidden>Sin excedentes en este filtro.</div>
     </section>
@@ -327,6 +336,13 @@ details.tv table{font-size:12px;margin-top:6px}
     <div id="bulkCfg"></div>
     <div class="bk-tbl"><table class="rec" id="bulkTbl"></table></div>
     <div class="acts" style="justify-content:space-between;align-items:center;flex-wrap:wrap"><span class="hint" id="bulkSum"></span><span style="display:flex;gap:8px"><button class="btn ghost" id="bulkCancel">Cancelar</button><button class="btn" id="bulkOk">Importar</button></span></div>
+  </div>
+</div>
+<div id="chartBg" role="dialog" aria-modal="true" aria-labelledby="chartBigTitle">
+  <div class="cb-card">
+    <div class="cb-head"><div><h2 id="chartBigTitle"></h2><div class="sub" id="chartBigSub"></div></div><button class="btn ghost" id="chartBigClose" type="button" aria-label="Cerrar">✕ Cerrar</button></div>
+    <div class="cb-body"><canvas id="chartBigCv"></canvas></div>
+    <div id="chartBigEmpty" class="empty-state" hidden>Sin datos en este filtro.</div>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -604,9 +620,41 @@ function drawChart(id, emptyId, has, cfgFn) {
   const cv = document.getElementById(id); const box = cv.parentElement;
   box.hidden = !has; document.getElementById(emptyId).hidden = has;
   if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+  chartBuild[id] = has ? cfgFn : null;
+  if (expanded === id) drawBig();
   if (!has || typeof Chart === 'undefined') return;
-  charts[id] = new Chart(cv, cfgFn());
+  charts[id] = new Chart(cv, cfgFn(false));
 }
+// ---------- Gráfica ampliada ----------
+const chartBuild = {}; let expanded = null, bigChart = null;
+function drawBig() {
+  if (bigChart) { bigChart.destroy(); bigChart = null; }
+  const build = chartBuild[expanded];
+  $('#chartBigEmpty').hidden = !!build; $('#chartBigCv').parentElement.hidden = !build;
+  if (!build || typeof Chart === 'undefined') return;
+  const c = build(true); const o = c.options;
+  const f = (obj, size) => { if (obj) obj.font = Object.assign({}, obj.font || {}, { size }); };
+  if (o.scales) Object.values(o.scales).forEach(sc => { f(sc.ticks, 13); if (sc.title) f(sc.title, 13); });
+  if (o.plugins && o.plugins.legend && o.plugins.legend.labels) f(o.plugins.legend.labels, 14);
+  c.data.datasets.forEach(d => { if (d.maxBarThickness) d.maxBarThickness = Math.round(d.maxBarThickness * 1.5); if (d.pointRadius) d.pointRadius = 4; if (d.borderWidth === 2) d.borderWidth = 3; });
+  bigChart = new Chart($('#chartBigCv'), c);
+}
+function openBig(id) {
+  const card = document.getElementById(id).closest('.card');
+  $('#chartBigTitle').textContent = card.querySelector('h2').textContent;
+  const extra = id === 'cTrans' ? ' · hasta 25 transiciones' : id === 'cLost' ? ' · hasta 20 transiciones' : '';
+  $('#chartBigSub').textContent = card.querySelector('.sub').textContent.replace(' · transiciones más frecuentes', '') + extra;
+  expanded = id; $('#chartBg').classList.add('open'); document.body.classList.add('locked');
+  drawBig(); setTimeout(() => $('#chartBigClose').focus(), 30);
+}
+function closeBig() { expanded = null; if (bigChart) { bigChart.destroy(); bigChart = null; } $('#chartBg').classList.remove('open'); if (!$('#landing').classList.contains('open')) document.body.classList.remove('locked'); }
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-exp]'); if (b) { openBig(b.dataset.exp); return; }
+  const box = e.target.closest('.chart-box'); if (box && !box.closest('#chartBg')) { const cv = box.querySelector('canvas'); if (cv) openBig(cv.id); }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && expanded) closeBig(); });
+$('#chartBigClose').addEventListener('click', closeBig);
+$('#chartBg').addEventListener('click', e => { if (e.target.id === 'chartBg') closeBig(); });
 const barDs = (label, data, color) => ({ label, data, backgroundColor: color, borderRadius: 4, borderSkipped: 'start', maxBarThickness: 18, categoryPercentage: 0.7, barPercentage: 0.9, borderColor: css('--surface'), borderWidth: 0 });
 
 function renderCharts(F) {
@@ -614,14 +662,14 @@ function renderCharts(F) {
   // 1. Transitions
   const g = {};
   F.forEach(r => { const k = r.lineId + '|' + keyOf(r.fromId, r.toId); (g[k] = g[k] || { r, s: 0, n: 0 }); g[k].s += r.minutes; g[k].n++; });
-  const top = Object.values(g).sort((a, b) => b.n - a.n).slice(0, 10);
+  const topAll = Object.values(g).sort((a, b) => b.n - a.n);
   const lbl = x => { const L = lineById(x.r.lineId); return (ui.line === 'all' ? L.name + ' · ' : '') + modelName(L, x.r.fromId) + ' → ' + modelName(L, x.r.toId); };
-  drawChart('cTrans', 'cTransEmpty', top.length > 0, () => ({
+  drawChart('cTrans', 'cTransEmpty', topAll.length > 0, big => { const top = topAll.slice(0, big ? 25 : 10); return ({
     type: 'bar',
     data: { labels: top.map(lbl), datasets: [barDs('Estándar', top.map(x => x.r.std), std), barDs('Real promedio', top.map(x => x.s / x.n), real)] },
     options: baseOpts({ indexAxis: 'y', scales: Object.assign(baseOpts().scales, { y: Object.assign(baseOpts().scales.y, { grid: { display: false } }), x: Object.assign(baseOpts().scales.x, { beginAtZero: true, title: { display: true, text: 'minutos', color: css('--muted'), font: { size: 11 } } }) }),
       plugins: Object.assign(baseOpts().plugins, { tooltip: Object.assign(baseOpts().plugins.tooltip, { callbacks: { label: c => ` ${c.dataset.label}: ${c.parsed.x == null ? 'sin estándar' : fmt(c.parsed.x) + ' min'}`, afterBody: items => { const x = top[items[0].dataIndex]; return `n = ${x.n} cambios`; } } }) }) })
-  }));
+  }); });
   // 2. Trend
   const days = {};
   F.forEach(r => { (days[r.date] = days[r.date] || { s: 0, n: 0, ss: 0, sn: 0 }); const d = days[r.date]; d.s += r.minutes; d.n++; if (r.std != null) { d.ss += r.std; d.sn++; } });
@@ -649,13 +697,13 @@ function renderCharts(F) {
   // 4. Lost minutes by transition (pareto)
   const lost = {};
   F.forEach(r => { if (r.std == null) return; const ex = r.minutes - r.std; if (ex <= 0) return; const k = r.lineId + '|' + keyOf(r.fromId, r.toId); (lost[k] = lost[k] || { r, v: 0, n: 0 }); lost[k].v += ex; lost[k].n++; });
-  const lt = Object.values(lost).sort((a, b) => b.v - a.v).slice(0, 8);
-  drawChart('cLost', 'cLostEmpty', lt.length > 0, () => ({
+  const ltAll = Object.values(lost).sort((a, b) => b.v - a.v);
+  drawChart('cLost', 'cLostEmpty', ltAll.length > 0, big => { const lt = ltAll.slice(0, big ? 20 : 8); return ({
     type: 'bar',
     data: { labels: lt.map(lbl), datasets: [Object.assign(barDs('Minutos perdidos', lt.map(x => x.v), real), { maxBarThickness: 22 })] },
     options: baseOpts({ indexAxis: 'y', plugins: Object.assign(baseOpts().plugins, { legend: { display: false }, tooltip: Object.assign(baseOpts().plugins.tooltip, { callbacks: { label: c => ` ${fmt(c.parsed.x)} min perdidos`, afterBody: it => `${lt[it[0].dataIndex].n} cambios excedidos` } }) }),
       scales: Object.assign(baseOpts().scales, { y: Object.assign(baseOpts().scales.y, { grid: { display: false } }) }) })
-  }));
+  }); });
 }
 
 // ---------- Form ----------
