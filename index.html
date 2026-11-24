@@ -671,8 +671,19 @@ function renderCharts(F) {
       plugins: Object.assign(baseOpts().plugins, { tooltip: Object.assign(baseOpts().plugins.tooltip, { callbacks: { label: c => ` ${c.dataset.label}: ${c.parsed.x == null ? 'sin estándar' : fmt(c.parsed.x) + ' min'}`, afterBody: items => { const x = top[items[0].dataIndex]; return `n = ${x.n} cambios`; } } }) }) })
   }); });
   // 2. Trend
+  const trendDetail = d => {
+    const L = d.list.slice().sort((a, b) => b.minutes - a.minutes);
+    const out = ['', `${d.n} cambio${d.n === 1 ? '' : 's'} ese día (mayor a menor):`];
+    L.slice(0, 10).forEach(r => {
+      const ln = lineById(r.lineId); const ex = r.std != null ? r.minutes - r.std : null;
+      out.push(`${ex == null ? '•' : ex > 0 ? '▲' : '✓'} ${ui.line === 'all' ? ln.name + ' · ' : ''}${modelName(ln, r.fromId)} → ${modelName(ln, r.toId)}`);
+      out.push(`   ${fmt(r.minutes)} min${r.std != null ? ' (est. ' + fmt(r.std) + ', ' + (ex > 0 ? '+' : '') + fmt(ex) + ')' : ''}${r.shift ? ' · T' + r.shift : ''}${r.time ? ' · ' + r.time : ''}`);
+    });
+    if (L.length > 10) out.push(`… y ${L.length - 10} más`);
+    return out;
+  };
   const days = {};
-  F.forEach(r => { (days[r.date] = days[r.date] || { s: 0, n: 0, ss: 0, sn: 0 }); const d = days[r.date]; d.s += r.minutes; d.n++; if (r.std != null) { d.ss += r.std; d.sn++; } });
+  F.forEach(r => { (days[r.date] = days[r.date] || { s: 0, n: 0, ss: 0, sn: 0 }); const d = days[r.date]; d.s += r.minutes; d.n++; (d.list = d.list || []).push(r); if (r.std != null) { d.ss += r.std; d.sn++; } });
   const dk = Object.keys(days).sort();
   const dl = d => { const [y, m, dd] = d.split('-'); return dd + '/' + m; };
   drawChart('cTrend', 'cTrendEmpty', dk.length > 0, () => ({
@@ -681,7 +692,7 @@ function renderCharts(F) {
       { label: 'Real promedio', data: dk.map(d => days[d].s / days[d].n), borderColor: real, backgroundColor: real, borderWidth: 2, pointRadius: dk.length > 40 ? 0 : 3, pointHoverRadius: 5, tension: 0.25, pointBorderColor: css('--surface'), pointBorderWidth: 2 },
       { label: 'Estándar', data: dk.map(d => days[d].sn ? days[d].ss / days[d].sn : null), borderColor: std, backgroundColor: std, borderWidth: 2, borderDash: [6, 4], pointRadius: 0, pointHoverRadius: 4, tension: 0.25, spanGaps: true }
     ] },
-    options: baseOpts({ plugins: Object.assign(baseOpts().plugins, { tooltip: Object.assign(baseOpts().plugins.tooltip, { callbacks: { label: c => ` ${c.dataset.label}: ${fmt(c.parsed.y)} min`, afterBody: it => `n = ${days[dk[it[0].dataIndex]].n} cambios` } }) }) })
+    options: baseOpts({ plugins: Object.assign(baseOpts().plugins, { tooltip: Object.assign(baseOpts().plugins.tooltip, { callbacks: { label: c => ` ${c.dataset.label}: ${fmt(c.parsed.y)} min`, afterBody: it => trendDetail(days[dk[it[0].dataIndex]]) } }) }) })
   }));
   // 3. Group (by line or by shift)
   const byLine = ui.line === 'all';
